@@ -31,17 +31,25 @@ export function AppSidebar() {
   return (
     <aside
       className={cn(
-        "fixed left-0 top-0 z-40 h-screen bg-navy text-navy-foreground flex flex-col transition-all duration-200",
+        "fixed left-0 top-0 z-40 h-screen bg-sidebar text-sidebar-foreground flex flex-col transition-all duration-300 border-r border-sidebar-border",
         collapsed ? "w-16" : "w-60"
       )}
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 h-14 border-b border-sidebar-border">
-        <Shield className="h-7 w-7 text-sidebar-primary shrink-0" />
+        <div className="relative">
+          <Shield className="h-7 w-7 text-primary shrink-0" />
+          <div className="absolute inset-0 h-7 w-7 bg-primary/20 rounded-full blur-md" />
+        </div>
         {!collapsed && (
-          <span className="text-lg font-bold tracking-tight text-sidebar-accent-foreground">
-            HQG Security
-          </span>
+          <div className="flex flex-col">
+            <span className="text-sm font-bold tracking-tight text-sidebar-accent-foreground">
+              HQG Security
+            </span>
+            <span className="text-[10px] text-sidebar-muted font-mono uppercase tracking-widest">
+              SOC Platform
+            </span>
+          </div>
         )}
       </div>
 
@@ -57,18 +65,31 @@ export function AppSidebar() {
               key={item.key}
               to={item.path}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
+                "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all duration-200 group",
                 isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  ? "bg-primary/10 text-primary border border-primary/20"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground border border-transparent"
               )}
             >
-              <item.icon className="h-5 w-5 shrink-0" />
+              <item.icon className={cn("h-5 w-5 shrink-0 transition-colors", isActive && "text-primary")} />
               {!collapsed && <span>{t(item.key)}</span>}
+              {isActive && !collapsed && (
+                <div className="ml-auto h-1.5 w-1.5 rounded-full bg-primary animate-scan-pulse" />
+              )}
             </Link>
           );
         })}
       </nav>
+
+      {/* Status bar */}
+      {!collapsed && (
+        <div className="px-3 py-3 border-t border-sidebar-border">
+          <div className="flex items-center gap-2 text-[11px] text-sidebar-muted">
+            <span className="h-2 w-2 rounded-full bg-success animate-scan-pulse" />
+            <span>System Online</span>
+          </div>
+        </div>
+      )}
 
       {/* Collapse toggle */}
       <button

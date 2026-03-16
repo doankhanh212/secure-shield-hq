@@ -4,6 +4,9 @@ import { MetricCard } from "@/components/dashboard/MetricCard";
 import { SeverityChart } from "@/components/dashboard/SeverityChart";
 import { PostureChart } from "@/components/dashboard/PostureChart";
 import { RecentScans } from "@/components/dashboard/RecentScans";
+import { AttackSurfaceOverview } from "@/components/dashboard/AttackSurfaceOverview";
+import { ScanActivityTimeline } from "@/components/dashboard/ScanActivityTimeline";
+import { TopRiskAssets } from "@/components/dashboard/TopRiskAssets";
 import { Server, ShieldAlert, Radar, TrendingUp } from "lucide-react";
 
 const Overview = () => {
@@ -13,8 +16,10 @@ const Overview = () => {
     <DashboardLayout>
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">{t("dashboard.title")}</h1>
+        <p className="text-sm text-muted-foreground mt-1">Real-time security monitoring & threat analysis</p>
       </div>
 
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <MetricCard
           title={t("dashboard.totalAssets")}
@@ -49,16 +54,29 @@ const Overview = () => {
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      {/* Attack Surface Overview */}
+      <div className="mb-6">
+        <AttackSurfaceOverview />
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
         <div className="lg:col-span-2">
           <PostureChart />
         </div>
         <SeverityChart />
       </div>
 
-      <div className="mt-4">
-        <RecentScans />
+      {/* Activity & Risk */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+        <div className="lg:col-span-2">
+          <ScanActivityTimeline />
+        </div>
+        <TopRiskAssets />
       </div>
+
+      {/* Recent Scans */}
+      <RecentScans />
     </DashboardLayout>
   );
 };

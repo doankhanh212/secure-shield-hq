@@ -1,0 +1,30 @@
+id: open-redirect
+name: Open Redirect
+severity: medium
+vulnerability_type: open_redirect
+owasp: "A01:2021 Broken Access Control"
+cwe: CWE-601
+description: Detects open redirect vulnerabilities via common redirect parameters
+tags: [redirect, owasp-top10]
+
+payloads:
+  - "https://evil.com"
+  - "//evil.com"
+  - "https://evil.com/%2f.."
+  - "/\\evil.com"
+  - "https:///evil.com"
+
+request:
+  method: GET
+  inject_in: query
+
+matchers:
+  - type: regex
+    value: "(?:location|refresh):\\s*https?://evil\\.com"
+    part: header
+  - type: status
+    value: "301"
+  - type: status
+    value: "302"
+
+match_condition: and

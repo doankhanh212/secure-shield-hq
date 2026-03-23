@@ -1,0 +1,67 @@
+id: sqli-error-based
+name: SQL Injection (Error-Based)
+severity: critical
+vulnerability_type: sqli
+owasp: "A03:2021 Injection"
+cwe: CWE-89
+description: Detects SQL injection via database error messages in HTTP responses
+tags: [sqli, injection, owasp-top10]
+
+payloads:
+  - "' OR '1'='1"
+  - "' OR 1=1--"
+  - "' OR 1=1#"
+  - "\" OR \"1\"=\"1"
+  - "\" OR 1=1--"
+  - "') OR ('1'='1"
+  - "1' ORDER BY 1--"
+  - "1' ORDER BY 100--"
+  - "admin'--"
+  - "1 UNION SELECT NULL,NULL,NULL--"
+
+request:
+  method: GET
+  inject_in: query
+
+matchers:
+  - type: regex
+    value: "You have an error in your SQL syntax"
+    part: body
+  - type: regex
+    value: "Warning.*mysqli?"
+    part: body
+  - type: regex
+    value: "Warning.*mysql_"
+    part: body
+  - type: regex
+    value: "check the manual that corresponds to your MySQL"
+    part: body
+  - type: regex
+    value: "mysql_fetch|mysql_num_rows|mysql_query"
+    part: body
+  - type: regex
+    value: "supplied argument is not a valid MySQL"
+    part: body
+  - type: regex
+    value: "ORA-\\d{5}"
+    part: body
+  - type: regex
+    value: "postgresql\\s+error"
+    part: body
+  - type: regex
+    value: "sqlite\\s+error|sqliteexception"
+    part: body
+  - type: regex
+    value: "Unclosed quotation mark"
+    part: body
+  - type: regex
+    value: "Incorrect syntax near"
+    part: body
+  - type: regex
+    value: "sql\\s+syntax"
+    part: body
+  - type: regex
+    value: "Microsoft.*ODBC.*Driver"
+    part: body
+
+match_condition: or

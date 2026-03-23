@@ -14,7 +14,18 @@ const LanguageContext = createContext<LanguageContextType>({
 });
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [lang, setLang] = useState<Lang>("vi");
+  const [lang, setLangState] = useState<Lang>(() => {
+    if (typeof window === "undefined") return "vi";
+    return (localStorage.getItem("lang") as Lang) ?? "vi";
+  });
+
+  const setLang = (l: Lang) => {
+    setLangState(l);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("lang", l);
+    }
+  };
+
   return (
     <LanguageContext.Provider value={{ lang, setLang, t: (key) => t(key, lang) }}>
       {children}

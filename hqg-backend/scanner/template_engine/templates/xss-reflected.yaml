@@ -1,0 +1,53 @@
+id: xss-reflected
+name: Cross-Site Scripting (Reflected XSS)
+severity: high
+vulnerability_type: xss
+owasp: "A03:2021 Injection"
+cwe: CWE-79
+description: Detects reflected XSS by checking if injected payloads appear in the response
+tags: [xss, reflected, injection]
+
+payloads:
+  - "<script>alert(1)</script>"
+  - "<script>alert('XSS')</script>"
+  - "\"><script>alert(1)</script>"
+  - "'><script>alert(1)</script>"
+  - "\"><img src=x onerror=alert(1)>"
+  - "'><img src=x onerror=alert(1)>"
+  - "<svg/onload=alert(1)>"
+  - "<svg onload=alert(1)>"
+  - "<body onload=alert(1)>"
+  - "<input autofocus onfocus=alert(1)>"
+  - "\"><details/open/ontoggle=alert(1)>"
+
+request:
+  method: GET
+  inject_in: query
+
+matchers:
+  - type: word
+    value: "<script>alert(1)</script>"
+    part: body
+  - type: word
+    value: "<script>alert('XSS')</script>"
+    part: body
+  - type: word
+    value: "onerror=alert(1)"
+    part: body
+  - type: word
+    value: "onload=alert(1)"
+    part: body
+  - type: word
+    value: "onfocus=alert(1)"
+    part: body
+  - type: word
+    value: "ontoggle=alert(1)"
+    part: body
+  - type: regex
+    value: "<script[^>]*>.*?alert\\("
+    part: body
+  - type: regex
+    value: "<(img|svg|body|input|iframe|details)[^>]+(onerror|onload|onfocus|ontoggle)="
+    part: body
+
+match_condition: or

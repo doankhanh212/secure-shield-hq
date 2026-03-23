@@ -1,0 +1,77 @@
+services:
+  # ── Redis ────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - hqg_network
+
+  # ── FastAPI API Server ───────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      uvicorn backend.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.docker
+    volumes:
+      - ./backend:/app/backend
+      - ./scanner:/app/scanner
+      - ./ai:/app/ai
+      - ./reporting:/app/reporting
+      - ./scheduler:/app/scheduler
+      - ./shared:/app/shared
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - hqg_network
+
+  # ── Celery Worker ────────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      celery -A backend.celery_app.celery_app worker
+      --loglevel=info
+      --concurrency=4
+      -Q queue_default,queue_scan_manager,queue_discovery,queue_crawler,queue_payload,queue_detection,queue_cve_intelligence,queue_template,queue_ai,queue_reporting,queue_scheduler
+    env_file:
+      - .env.docker
+    volumes:
+      - ./backend:/app/backend
+      - ./scanner:/app/scanner
+      - ./ai:/app/ai
+      - ./reporting:/app/reporting
+      - ./scheduler:/app/scheduler
+      - ./shared:/app/shared
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    networks:
+      - hqg_network
+
+networks:
+  hqg_network:
+    driver: bridge

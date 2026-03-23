@@ -1,0 +1,57 @@
+id: info-disclosure
+name: Information Disclosure
+severity: medium
+vulnerability_type: info_disclosure
+owasp: "A05:2021 Security Misconfiguration"
+cwe: CWE-200
+description: Detects information disclosure via stack traces, debug pages, and sensitive data exposure
+tags: [info-disclosure, misconfiguration]
+
+payloads:
+  - "'"
+  - "<invalid>"
+  - "{{7*7}}"
+  - "${7*7}"
+  - "AAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  - "%00"
+  - "%0d%0a"
+  - "null"
+
+request:
+  method: GET
+  inject_in: query
+
+matchers:
+  - type: regex
+    value: "(?:Fatal error|Warning|Notice):\\s+.*\\bin\\b.*\\.php\\b"
+    part: body
+  - type: word
+    value: "phpinfo()"
+    part: body
+  - type: regex
+    value: "Traceback \\(most recent call last\\)"
+    part: body
+  - type: regex
+    value: "at \\S+\\.java:\\d+"
+    part: body
+  - type: regex
+    value: "Exception in thread"
+    part: body
+  - type: word
+    value: "DOCUMENT_ROOT"
+    part: body
+  - type: regex
+    value: "(?:stack trace|backtrace):"
+    part: body
+  - type: word
+    value: "49"
+    part: body
+    negative: false
+  - type: regex
+    value: "(?:Microsoft .NET Framework|ASP\\.NET).*Error"
+    part: body
+  - type: regex
+    value: "\\bDB_PASSWORD\\b|\\bDB_HOST\\b|\\bSECRET_KEY\\b"
+    part: body
+
+match_condition: or

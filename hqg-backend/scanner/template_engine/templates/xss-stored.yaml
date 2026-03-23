@@ -1,0 +1,31 @@
+id: xss-stored-probe
+name: Cross-Site Scripting (Stored XSS Probe)
+severity: high
+vulnerability_type: xss
+owasp: "A03:2021 Injection"
+cwe: CWE-79
+description: Detects potential stored XSS by injecting into POST forms and checking reflection
+tags: [xss, stored, injection]
+
+payloads:
+  - "<script>alert('STORED')</script>"
+  - "\"><img src=x onerror=alert('STORED')>"
+  - "'><svg onload=alert('STORED')>"
+
+request:
+  method: POST
+  inject_in: body
+  body: "{{payload}}"
+
+matchers:
+  - type: word
+    value: "alert('STORED')"
+    part: body
+  - type: regex
+    value: "<script[^>]*>.*?alert\\("
+    part: body
+  - type: regex
+    value: "onerror=alert\\("
+    part: body
+
+match_condition: or

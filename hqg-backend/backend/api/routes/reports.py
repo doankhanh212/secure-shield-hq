@@ -52,13 +52,36 @@ def _generate_format(scan_id: str, fmt: str, scan_meta: dict[str, object]) -> Pa
     from reporting.engine.report_builder import build_report
 
     findings = get_findings(scan_id)
+    out_dir = _report_dir(scan_id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if fmt == "html":
+        # HTML report takes a flat scan_result dict, not a ScanReport object
+        from reporting.engine.html_report import write_html
+        from reporting.engine.tasks import _build_scan_result_dict
+
+        report = build_report(
+            scan_id=scan_id,
+            analyzed_vulnerabilities=findings,
+            target=str(scan_meta.get("target", "")),
+            scan_mode=str(scan_meta.get("mode", "standard")),
+        )
+        scan_result = _build_scan_result_dict(
+            scan_id=scan_id,
+            report=report,
+            analyzed_vulnerabilities=findings,
+            meta=scan_meta,
+        )
+        html_path = out_dir / f"{scan_id}.html"
+        write_html(scan_result, html_path)
+        return html_path
+
     report = build_report(
         scan_id=scan_id,
         analyzed_vulnerabilities=findings,
         target=str(scan_meta.get("target", "")),
         scan_mode=str(scan_meta.get("mode", "standard")),
     )
-    out_dir = _report_dir(scan_id)
 
     if fmt == "json":
         from reporting.engine.json_report import write_json
@@ -66,9 +89,6 @@ def _generate_format(scan_id: str, fmt: str, scan_meta: dict[str, object]) -> Pa
     if fmt == "csv":
         from reporting.engine.csv_report import write_csv
         return write_csv(report, out_dir)
-    if fmt == "html":
-        from reporting.engine.html_report import write_html
-        return write_html(report, out_dir)
     if fmt == "pdf":
         from reporting.engine.pdf_report import write_pdf
         return write_pdf(report, out_dir)

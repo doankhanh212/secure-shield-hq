@@ -33,6 +33,11 @@ def analyze_timing(
 
     time_vtype = "time_based_sqli" if vtype == "sqli" else "time_based_cmdi"
     confidence = "High" if absolute_hit else "Medium"
+    evidence = (
+        f"Response time: {response_time:.2f}s | "
+        f"Baseline: {baseline_time:.2f}s | "
+        f"Delta: {response_time - baseline_time:.2f}s"
+    )
 
     return VulnerabilityFinding(
         endpoint=endpoint,
@@ -40,4 +45,5 @@ def analyze_timing(
         vulnerability_type=time_vtype,
         confidence=confidence,
         detection_method="time_based",
+        evidence=evidence,
     )

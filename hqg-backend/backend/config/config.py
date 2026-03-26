@@ -30,6 +30,11 @@ class Settings(BaseSettings):
 
     celery_task_default_queue: str = Field(default="queue_default")
 
+    # NVD API key — tùy chọn, không bắt buộc
+    # Không có key: rate limit 5 req/30s; có key: 50 req/30s
+    # Đăng ký miễn phí: https://nvd.nist.gov/developers/request-an-api-key
+    nvd_api_key: str = Field(default="")
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

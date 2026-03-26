@@ -72,6 +72,28 @@ services:
     networks:
       - hqg_network
 
+  # ── DVWA — Local Vulnerable Target for Testing ──────────────────
+  dvwa:
+    image: ghcr.io/digininja/dvwa:latest
+    environment:
+      - DB_SERVER=dvwa-db
+    ports:
+      - "8080:80"
+    depends_on:
+      - dvwa-db
+    networks:
+      - hqg_network
+
+  dvwa-db:
+    image: mariadb:10
+    environment:
+      - MYSQL_ROOT_PASSWORD=dvwa
+      - MYSQL_DATABASE=dvwa
+      - MYSQL_USER=dvwa
+      - MYSQL_PASSWORD=p@ssw0rd
+    networks:
+      - hqg_network
+
 networks:
   hqg_network:
     driver: bridge

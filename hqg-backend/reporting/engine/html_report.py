@@ -1,315 +1,910 @@
+"""
+HQG Security Platform — HTML Report Generator
+Tạo báo cáo bảo mật cấp độ intelligence, self-contained, dark theme.
+
+Public API:
+    write_html(scan_result: dict, output_path: Path) -> None
+"""
 from __future__ import annotations
 
+import html as _html
+from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 
-from reporting.engine.models import ScanReport
+# ---------------------------------------------------------------------------
+# XSS safety — dùng cho MỌI user-supplied data
+# ---------------------------------------------------------------------------
 
-_SEVERITY_COLOR: dict[str, str] = {
-    "Critical": "#dc2626",
-    "High": "#ea580c",
-    "Medium": "#d97706",
-    "Low": "#16a34a",
+def _safe(text) -> str:
+    """HTML-escape bất kỳ giá trị nào. Never raises."""
+    try:
+        return _html.escape(str(text), quote=True) if text else ""
+    except Exception:
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# Design constants
+# ---------------------------------------------------------------------------
+
+_SEV_COLOR = {
+    "Critical": "#ff3e5e",
+    "High":     "#ff7b44",
+    "Medium":   "#ffb800",
+    "Low":      "#00ff9d",
+    "None":     "#4a6a90",
 }
 
+_SEV_BG = {
+    "Critical": "rgba(255,62,94,0.15)",
+    "High":     "rgba(255,123,68,0.15)",
+    "Medium":   "rgba(255,184,0,0.15)",
+    "Low":      "rgba(0,255,157,0.12)",
+    "None":     "rgba(74,106,144,0.15)",
+}
 
-def write_html(report: ScanReport, output_dir: Path) -> Path:
-    """Render *report* as a self-contained HTML file under *output_dir*."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / f"{report.scan_id}.html"
-    path.write_text(_render(report), encoding="utf-8")
-    return path
+_EFFORT_MAP: dict[str, str] = {
+    "sqli":               "2–4 giờ",
+    "time_based_sqli":    "2–4 giờ",
+    "xss":                "1–2 giờ",
+    "xss_stored":         "2–3 giờ",
+    "cmdi":               "4–8 giờ",
+    "time_based_cmdi":    "4–8 giờ",
+    "ssrf":               "4–6 giờ",
+    "lfi":                "2–4 giờ",
+    "path_traversal":     "2–4 giờ",
+    "info_disclosure":    "30 phút–1 giờ",
+    "open_redirect":      "1–2 giờ",
+    "cors_misconfiguration": "1–2 giờ",
+    "xxe":                "2–4 giờ",
+    "crlf_injection":     "1–2 giờ",
+}
+
+# ---------------------------------------------------------------------------
+# CSS (module-level constant — không phải f-string)
+# ---------------------------------------------------------------------------
+
+_CSS = """\
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:14px;scroll-behavior:smooth}
+body{
+  background:#070b0f;color:#e8f4ff;
+  font-family:system-ui,-apple-system,'Segoe UI',sans-serif;
+  line-height:1.7;
+}
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:#070b0f}
+::-webkit-scrollbar-thumb{background:#2a4a70;border-radius:3px}
+
+/* Sidebar */
+.sidebar{
+  width:260px;background:#0d1520;border-right:1px solid #1e3352;
+  position:fixed;top:0;bottom:0;left:0;overflow-y:auto;
+  padding:20px 0;z-index:100;
+}
+.sidebar-logo{padding:0 18px 18px;border-bottom:1px solid #1e3352}
+.sidebar-title{
+  font-size:16px;font-weight:700;letter-spacing:2px;
+  color:#e8f4ff;text-transform:uppercase
+}
+.sidebar-sub{
+  font-size:10px;color:#4a6a90;letter-spacing:1.5px;
+  text-transform:uppercase;margin-top:3px
+}
+.toc-section{
+  font-size:10px;letter-spacing:2px;color:#4a6a90;
+  text-transform:uppercase;padding:14px 18px 4px
+}
+.toc-link{
+  display:block;padding:6px 18px;font-size:12px;
+  color:#8aa8cc;text-decoration:none;
+  border-left:2px solid transparent;transition:all .15s
+}
+.toc-link:hover{color:#00d4ff;border-left-color:#00d4ff;background:rgba(0,212,255,.04)}
+.toc-critical{color:#ff3e5e}
+.toc-high{color:#ff7b44}
+.toc-medium{color:#ffb800}
+.toc-low{color:#00ff9d}
+.toc-info{color:#00d4ff}
+
+/* Main content */
+.main{margin-left:260px;padding:44px 52px;max-width:1100px}
+
+/* Hero */
+.hero{margin-bottom:44px;padding-bottom:28px;border-bottom:1px solid #1e3352}
+.hero-label{
+  font-size:11px;letter-spacing:3px;color:#00d4ff;
+  text-transform:uppercase;margin-bottom:8px
+}
+.hero-title{
+  font-size:36px;font-weight:800;letter-spacing:.5px;line-height:1.1;
+  color:#e8f4ff;margin-bottom:6px
+}
+.hero-target{color:#00d4ff}
+.hero-meta{
+  display:flex;gap:24px;flex-wrap:wrap;margin-top:16px
+}
+.hero-meta-item{font-size:12px;color:#8aa8cc}
+.hero-meta-item strong{color:#e8f4ff}
+
+/* Score grid */
+.score-grid{
+  display:grid;grid-template-columns:repeat(5,1fr);
+  gap:12px;margin-bottom:40px
+}
+.score-card{
+  background:#111d2e;border:1px solid #1e3352;
+  border-radius:8px;padding:18px 14px;text-align:center
+}
+.score-val{
+  font-size:32px;font-weight:800;line-height:1;
+  letter-spacing:-1px
+}
+.score-lbl{
+  font-size:10px;letter-spacing:1.5px;color:#4a6a90;
+  margin-top:6px;text-transform:uppercase
+}
+
+/* Section */
+.section{margin-bottom:52px}
+.section-title{
+  font-size:20px;font-weight:700;letter-spacing:2px;
+  text-transform:uppercase;color:#e8f4ff;
+  padding-bottom:10px;border-bottom:1px solid #1e3352;
+  margin-bottom:22px
+}
+
+/* Finding block */
+.finding{
+  background:#111d2e;border:1px solid #1e3352;
+  border-radius:8px;margin-bottom:16px;overflow:hidden
+}
+.finding-header{
+  display:flex;align-items:center;gap:10px;
+  padding:13px 16px;cursor:pointer;user-select:none;
+  transition:background .15s
+}
+.finding-header:hover{background:#162338}
+.sev-badge{
+  font-size:10px;font-weight:700;letter-spacing:1.5px;
+  padding:3px 9px;border-radius:3px;
+  text-transform:uppercase;border:1px solid;flex-shrink:0
+}
+.finding-id{font-size:11px;color:#4a6a90;font-family:'SF Mono','Cascadia Code',Consolas,monospace}
+.finding-cwe{
+  font-size:11px;color:#8aa8cc;
+  font-family:'SF Mono','Cascadia Code',Consolas,monospace
+}
+.finding-cvss{
+  font-size:11px;background:#162338;
+  padding:2px 7px;border-radius:3px;color:#8aa8cc
+}
+.finding-name{font-size:14px;font-weight:600;color:#e8f4ff;flex:1}
+.finding-toggle{color:#4a6a90;font-size:16px;margin-left:auto;flex-shrink:0}
+
+.finding-body{padding:16px 18px;border-top:1px solid #1e3352}
+.field-label{
+  font-size:10px;letter-spacing:2px;color:#4a6a90;
+  text-transform:uppercase;margin-top:16px;margin-bottom:5px
+}
+.field-label:first-child{margin-top:0}
+.field-text{font-size:13px;color:#8aa8cc;line-height:1.75}
+.code-block{
+  background:#040810;border:1px solid #1e3352;border-radius:5px;
+  padding:12px 14px;font-family:'SF Mono','Cascadia Code',Consolas,monospace;
+  font-size:12px;line-height:1.75;overflow-x:auto;color:#8aa8cc;
+  white-space:pre-wrap;word-break:break-all
+}
+.code-inline{
+  background:#162338;padding:2px 6px;border-radius:4px;
+  font-family:'SF Mono','Cascadia Code',Consolas,monospace;
+  font-size:12px;color:#00d4ff
+}
+.fix-list{
+  list-style:none;margin:6px 0 0
+}
+.fix-list li{
+  padding:5px 0;font-size:13px;color:#8aa8cc;
+  display:flex;gap:8px;align-items:flex-start
+}
+.fix-list li::before{content:'›';color:#00d4ff;flex-shrink:0}
+.conf-badge{
+  display:inline-block;font-size:11px;padding:2px 9px;
+  border-radius:12px;margin-top:10px
+}
+.conf-confirmed{background:rgba(0,255,157,.12);color:#00ff9d;border:1px solid rgba(0,255,157,.3)}
+.conf-likely{background:rgba(0,212,255,.10);color:#00d4ff;border:1px solid rgba(0,212,255,.3)}
+.conf-potential{background:rgba(74,106,144,.15);color:#8aa8cc;border:1px solid #2a4a70}
+
+/* Group header */
+.group-eps{
+  margin-top:8px;padding:8px 12px;
+  background:#070b0f;border-radius:5px;
+  font-size:12px;color:#4a6a90
+}
+.group-eps span{
+  display:block;padding:2px 0;
+  font-family:'SF Mono','Cascadia Code',Consolas,monospace;font-size:11px
+}
+
+/* Callout */
+.callout{
+  border-radius:5px;padding:10px 14px;margin:12px 0;
+  font-size:13px;display:flex;gap:8px;align-items:flex-start;
+  border-left:3px solid
+}
+.callout-warn{
+  background:rgba(255,184,0,.06);border-color:#ffb800;color:#8aa8cc
+}
+.callout-info{
+  background:rgba(0,212,255,.05);border-color:#00d4ff;color:#8aa8cc
+}
+
+/* Table */
+.data-table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}
+.data-table th{
+  background:#162338;padding:9px 12px;text-align:left;
+  font-size:10px;letter-spacing:1.5px;color:#4a6a90;
+  text-transform:uppercase;border-bottom:1px solid #2a4a70;
+  white-space:nowrap
+}
+.data-table td{
+  padding:10px 12px;border-bottom:1px solid #1e3352;
+  color:#8aa8cc;vertical-align:top
+}
+.data-table tr:last-child td{border-bottom:none}
+.data-table tr:hover td{background:#162338;color:#e8f4ff}
+.data-table td.empty{color:#4a6a90;text-align:center;padding:24px}
+.kev-pill{
+  display:inline-block;background:rgba(255,62,94,.15);
+  color:#ff3e5e;border:1px solid rgba(255,62,94,.4);
+  font-size:10px;font-weight:700;letter-spacing:1px;
+  padding:2px 8px;border-radius:3px;text-transform:uppercase
+}
+
+/* Asset section */
+.metric-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+.metric-tile{
+  background:#111d2e;border:1px solid #1e3352;border-radius:8px;
+  padding:16px;text-align:center
+}
+.metric-tile-val{font-size:28px;font-weight:800;color:#00d4ff;line-height:1}
+.metric-tile-lbl{font-size:10px;color:#4a6a90;letter-spacing:1.5px;text-transform:uppercase;margin-top:5px}
+.tech-pills{display:flex;flex-wrap:wrap;gap:7px}
+.tech-pill{
+  background:#162338;border:1px solid #2a4a70;
+  color:#8aa8cc;font-size:12px;padding:3px 10px;border-radius:12px
+}
+
+/* Priority badges */
+.p0{color:#ff3e5e;font-weight:700}
+.p1{color:#ff7b44;font-weight:700}
+.p2{color:#ffb800;font-weight:700}
+.p3{color:#00ff9d}
+
+/* Footer */
+.footer{
+  text-align:center;font-size:11px;color:#4a6a90;
+  padding:28px 0;border-top:1px solid #1e3352;margin-top:44px
+}
+
+/* Anchor offset for fixed sidebar */
+.anchor{display:block;position:relative;top:-24px;visibility:hidden}
+"""
+
+_JS = """\
+function toggleDetail(id){
+  var el=document.getElementById(id);
+  if(!el)return;
+  el.style.display=(el.style.display==='none'?'block':'none');
+  var btn=el.previousElementSibling&&el.previousElementSibling.querySelector('.finding-toggle');
+  if(btn)btn.textContent=(el.style.display==='none'?'▶':'▼');
+}
+document.addEventListener('DOMContentLoaded',function(){
+  document.querySelectorAll('a[href^="#"]').forEach(function(a){
+    a.addEventListener('click',function(e){
+      var t=document.querySelector(this.getAttribute('href'));
+      if(t){e.preventDefault();t.scrollIntoView({behavior:'smooth',block:'start'});}
+    });
+  });
+});
+"""
 
 
 # ---------------------------------------------------------------------------
-# Private rendering
+# Helper renderers
 # ---------------------------------------------------------------------------
 
-def _severity_badge(severity: str) -> str:
-    color = _SEVERITY_COLOR.get(severity, "#6b7280")
+def _sev_badge(severity: str) -> str:
+    color = _SEV_COLOR.get(severity, "#4a6a90")
+    bg    = _SEV_BG.get(severity, "rgba(74,106,144,.15)")
+    s     = _safe(severity) or "N/A"
     return (
-        f'<span class="badge" style="background:{color}">{severity}</span>'
+        f'<span class="sev-badge" '
+        f'style="color:{color};background:{bg};border-color:{color}40">'
+        f'{s}</span>'
     )
 
 
-def _ul(items: list[str]) -> str:
-    if not items:
-        return "<em class='none'>None discovered</em>"
-    return "<ul>" + "".join(f"<li>{_esc(item)}</li>" for item in items) + "</ul>"
+def _conf_badge(label: str) -> str:
+    cls_map = {
+        "Confirmed": "conf-confirmed",
+        "Likely":    "conf-likely",
+        "Potential": "conf-potential",
+    }
+    cls = cls_map.get(label, "conf-potential")
+    label_vn = {"Confirmed": "Đã xác nhận", "Likely": "Có khả năng", "Potential": "Tiềm năng"}.get(label, label)
+    return f'<span class="conf-badge {cls}">{_safe(label_vn)}</span>'
 
 
-def _esc(text: str) -> str:
-    """Minimal HTML escaping to prevent XSS in report output."""
+def _priority_label(cvss: float) -> tuple[str, str]:
+    """Return (css_class, label) for remediation roadmap."""
+    if cvss >= 9.0:
+        return "p0", "P0 — Ngay"
+    if cvss >= 7.0:
+        return "p1", "P1 — Sprint 1"
+    if cvss >= 4.0:
+        return "p2", "P2 — Sprint 2"
+    return "p3", "P3 — Sprint 3"
+
+
+def _duration_str(started: str, completed: str) -> str:
+    """Parse ISO timestamps and return human duration string."""
+    try:
+        fmt = "%Y-%m-%dT%H:%M:%S"
+        s = datetime.fromisoformat(started.replace("Z", "+00:00"))
+        e = datetime.fromisoformat(completed.replace("Z", "+00:00"))
+        secs = int((e - s).total_seconds())
+        if secs < 60:
+            return f"{secs}s"
+        if secs < 3600:
+            return f"{secs // 60}m {secs % 60}s"
+        return f"{secs // 3600}h {(secs % 3600) // 60}m"
+    except Exception:
+        return "N/A"
+
+
+def _score_color(score: float) -> str:
+    if score >= 70:
+        return "#00ff9d"
+    if score >= 40:
+        return "#ffb800"
+    return "#ff3e5e"
+
+
+# ---------------------------------------------------------------------------
+# Section renderers
+# ---------------------------------------------------------------------------
+
+def _render_sidebar(vulns: list[dict]) -> str:
+    # Build TOC items for finding groups
+    toc_findings: list[str] = []
+
+    # Group by severity for TOC sections
+    sev_order = ["Critical", "High", "Medium", "Low"]
+    by_sev: dict[str, list[dict]] = defaultdict(list)
+    for v in vulns:
+        sev = str(v.get("severity", "Low"))
+        by_sev[sev].append(v)
+
+    toc_cls = {
+        "Critical": "toc-critical",
+        "High":     "toc-high",
+        "Medium":   "toc-medium",
+        "Low":      "toc-low",
+    }
+
+    for sev in sev_order:
+        group = by_sev.get(sev, [])
+        if not group:
+            continue
+        toc_findings.append(
+            f'<div class="toc-section">{_safe(sev)} ({len(group)})</div>'
+        )
+        seen_types: set[str] = set()
+        for v in group[:8]:  # cap TOC entries per severity
+            vt = str(v.get("vulnerability_type", ""))
+            fid = str(v.get("finding_id", ""))[:8]
+            name = str(v.get("vulnerability_type", "Unknown")).replace("_", " ").title()
+            anchor = f"f-{fid}"
+            if vt not in seen_types:
+                seen_types.add(vt)
+            toc_findings.append(
+                f'<a class="toc-link {toc_cls.get(sev, "toc-info")}" href="#{_safe(anchor)}">'
+                f'{_safe(fid)} · {_safe(name)}</a>'
+            )
+
     return (
-        text
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&#x27;")
+        '<nav class="sidebar">'
+        '<div class="sidebar-logo">'
+        '<div class="sidebar-title">🛡 HQG Security</div>'
+        '<div class="sidebar-sub">Security Assessment Report</div>'
+        '</div>'
+        '<div class="toc-section">Tổng Quan</div>'
+        '<a class="toc-link toc-info" href="#overview">Dashboard</a>'
+        '<a class="toc-link toc-info" href="#findings">Lỗ Hổng Bảo Mật</a>'
+        '<a class="toc-link toc-info" href="#cve">CVE Intelligence</a>'
+        '<a class="toc-link toc-info" href="#assets">Tài Sản</a>'
+        '<a class="toc-link toc-info" href="#roadmap">Lộ Trình Khắc Phục</a>'
+        + "".join(toc_findings) +
+        '</nav>'
     )
 
 
-def _render(r: ScanReport) -> str:
-    es = r.executive_summary
-    ro = r.risk_overview
-    asset = r.asset_summary
+def _render_hero(scan_result: dict, duration: str) -> str:
+    target     = _safe(scan_result.get("target", ""))
+    mode       = _safe(scan_result.get("scan_mode", "standard")).title()
+    started    = _safe(str(scan_result.get("started_at", ""))[:10])
+    version    = _safe(scan_result.get("scanner_version", "1.0.0"))
+    asset_sum  = scan_result.get("asset_summary") or {}
+    n_ep       = int(asset_sum.get("total_endpoints", 0))
+    n_tech     = len(asset_sum.get("technologies") or [])
 
-    false_positives = es.total_vulnerabilities - es.confirmed_vulnerabilities
+    return (
+        '<div class="hero">'
+        '<div class="hero-label">Báo Cáo Phân Tích Bảo Mật</div>'
+        f'<div class="hero-title">Phân Tích Bề Mặt Tấn Công<br>'
+        f'<span class="hero-target">{target}</span></div>'
+        '<div class="hero-meta">'
+        f'<div class="hero-meta-item"><strong>Chế độ quét:</strong> {mode}</div>'
+        f'<div class="hero-meta-item"><strong>Ngày quét:</strong> {started}</div>'
+        f'<div class="hero-meta-item"><strong>Thời lượng:</strong> {_safe(duration)}</div>'
+        f'<div class="hero-meta-item"><strong>Phiên bản:</strong> {version}</div>'
+        f'<div class="hero-meta-item"><strong>Endpoints:</strong> {n_ep}</div>'
+        f'<div class="hero-meta-item"><strong>Công nghệ:</strong> {n_tech}</div>'
+        '</div>'
+        '</div>'
+    )
 
-    # --- Vulnerability table rows ---
+
+def _render_score_grid(risk: dict) -> str:
+    overall  = float(risk.get("overall_score", 0.0))
+    critical = int(risk.get("critical_count", 0))
+    high     = int(risk.get("high_count", 0))
+    medium   = int(risk.get("medium_count", 0))
+    low      = int(risk.get("low_count", 0))
+    o_color  = _score_color(overall)
+
+    def _card(val: str, label: str, color: str, extra_border: str = "") -> str:
+        border = f"border-color:{extra_border or color}40" if color else ""
+        return (
+            f'<div class="score-card" style="{border}">'
+            f'<div class="score-val" style="color:{color}">{_safe(val)}</div>'
+            f'<div class="score-lbl">{_safe(label)}</div>'
+            f'</div>'
+        )
+
+    return (
+        '<a class="anchor" id="overview"></a>'
+        '<div class="score-grid">'
+        + _card(f"{overall:.1f}/100", "Điểm Rủi Ro", o_color)
+        + _card(str(critical), "Critical",  "#ff3e5e")
+        + _card(str(high),     "High",      "#ff7b44")
+        + _card(str(medium),   "Medium",    "#ffb800")
+        + _card(str(low),      "Low",       "#00ff9d")
+        + '</div>'
+    )
+
+
+def _render_single_finding(v: dict, detail_id: str, is_open: bool) -> str:
+    sev        = str(v.get("severity", "Low"))
+    fid        = str(v.get("finding_id", ""))[:8]
+    cwe        = _safe(v.get("cwe_id", ""))
+    owasp      = _safe(v.get("owasp_category", ""))
+    cvss       = float(v.get("cvss_score", 0.0))
+    vuln_name  = str(v.get("vulnerability_type", "")).replace("_", " ").title()
+    explanation= _safe(v.get("explanation", ""))
+    impact     = _safe(v.get("impact", ""))
+    evidence   = str(v.get("evidence", ""))[:600]
+    payload    = _safe(v.get("payload", ""))
+    endpoint   = _safe(v.get("endpoint", ""))
+    parameter  = _safe(v.get("parameter", "")) or "—"
+    conf_lbl   = str(v.get("confidence_label", v.get("confidence_label_text", "")))
+    fp_like    = float(v.get("false_positive_likelihood", 0.0))
+    fixes      = v.get("fix_recommendation") or []
+
+    display   = "block" if is_open else "none"
+    toggle_ic = "▼" if is_open else "▶"
+
+    # Fix list
+    fix_items = "".join(
+        f'<li>{_safe(fx)}</li>' for fx in fixes if fx
+    ) if fixes else f'<li>Xem hướng dẫn bảo mật cho {_safe(vuln_name)}</li>'
+
+    # FP callout
+    fp_callout = ""
+    if fp_like > 0.5:
+        fp_callout = (
+            '<div class="callout callout-warn">'
+            '<span>⚠</span>'
+            f'<span>Khả năng false positive cao ({fp_like:.0%}). '
+            'Nên xác minh thủ công trước khi xử lý.</span>'
+            '</div>'
+        )
+
+    return (
+        f'<div class="finding" id="f-{_safe(fid)}">'
+        # Header (clickable toggle)
+        f'<div class="finding-header" onclick="toggleDetail(\'{_safe(detail_id)}\')">'
+        + _sev_badge(sev) +
+        f'<span class="finding-id">{_safe(fid)}</span>'
+        f'<span class="finding-cwe">{cwe}</span>'
+        f'<span class="finding-cwe">{owasp}</span>'
+        f'<span class="finding-cvss">CVSS {cvss:.1f}</span>'
+        f'<span class="finding-name">{_safe(vuln_name)}</span>'
+        f'<span class="finding-toggle">{toggle_ic}</span>'
+        '</div>'
+        # Body (collapsible)
+        f'<div class="finding-body" id="{_safe(detail_id)}" style="display:{display}">'
+        # Mô tả
+        '<div class="field-label">Mô Tả</div>'
+        f'<div class="field-text">{explanation}</div>'
+        # Tác động
+        '<div class="field-label">Tác Động</div>'
+        f'<div class="field-text">{impact}</div>'
+        # Evidence
+        '<div class="field-label">Evidence</div>'
+        f'<div class="code-block">{_safe(evidence) if evidence.strip() else "(không có evidence)"}</div>'
+        # Payload
+        '<div class="field-label">Payload</div>'
+        f'<div class="field-text"><code class="code-inline">{payload if payload else "—"}</code></div>'
+        # Endpoint
+        '<div class="field-label">Endpoint</div>'
+        f'<div class="field-text">{endpoint}</div>'
+        # Tham số
+        '<div class="field-label">Tham Số</div>'
+        f'<div class="field-text"><code class="code-inline">{parameter}</code></div>'
+        # Khắc phục
+        '<div class="field-label">Khắc Phục</div>'
+        f'<ol class="fix-list">{fix_items}</ol>'
+        # Confidence + FP
+        + _conf_badge(conf_lbl)
+        + fp_callout +
+        '</div>'
+        '</div>'
+    )
+
+
+def _render_findings_section(vulns: list[dict]) -> str:
+    if not vulns:
+        return (
+            '<a class="anchor" id="findings"></a>'
+            '<div class="section">'
+            '<div class="section-title">Lỗ Hổng Bảo Mật</div>'
+            '<div class="callout callout-info">'
+            '<span>ℹ</span><span>Không phát hiện lỗ hổng nào trong lần quét này.</span>'
+            '</div></div>'
+        )
+
+    # Sort by cvss_score desc
+    sorted_vulns = sorted(vulns, key=lambda v: float(v.get("cvss_score", 0.0)), reverse=True)
+
+    # Group by (vulnerability_type, parameter) for deduplication
+    groups: dict[tuple, list[dict]] = defaultdict(list)
+    for v in sorted_vulns:
+        key = (str(v.get("vulnerability_type", "")), str(v.get("parameter", "")))
+        groups[key].append(v)
+
+    parts = [
+        '<a class="anchor" id="findings"></a>',
+        '<div class="section">',
+        '<div class="section-title">Lỗ Hổng Bảo Mật</div>',
+    ]
+
+    block_idx = 0
+    for key, group_vulns in groups.items():
+        primary = group_vulns[0]
+        sev     = str(primary.get("severity", "Low"))
+        is_open = sev in ("Critical", "High")
+        detail_id = f"detail-{block_idx}"
+        block_idx += 1
+
+        if len(group_vulns) >= 2:
+            # Grouped block: same vuln_type + parameter, multiple endpoints
+            fid       = str(primary.get("finding_id", ""))[:8]
+            cwe       = _safe(primary.get("cwe_id", ""))
+            owasp     = _safe(primary.get("owasp_category", ""))
+            cvss      = float(primary.get("cvss_score", 0.0))
+            vuln_name = str(primary.get("vulnerability_type", "")).replace("_", " ").title()
+            explanation = _safe(primary.get("explanation", ""))
+            impact      = _safe(primary.get("impact", ""))
+            payload     = _safe(primary.get("payload", ""))
+            parameter   = _safe(primary.get("parameter", "")) or "—"
+            conf_lbl    = str(primary.get("confidence_label", primary.get("confidence_label_text", "")))
+            fixes       = primary.get("fix_recommendation") or []
+            fp_like     = float(primary.get("false_positive_likelihood", 0.0))
+
+            display   = "block" if is_open else "none"
+            toggle_ic = "▼" if is_open else "▶"
+
+            fix_items = "".join(f'<li>{_safe(fx)}</li>' for fx in fixes if fx)
+            fp_callout = ""
+            if fp_like > 0.5:
+                fp_callout = (
+                    '<div class="callout callout-warn"><span>⚠</span>'
+                    f'<span>Khả năng false positive cao ({fp_like:.0%}). Xác minh thủ công.</span></div>'
+                )
+
+            ep_list = "".join(
+                f'<span>{_safe(str(gv.get("endpoint", "")))}</span>'
+                for gv in group_vulns
+            )
+
+            parts.append(
+                f'<div class="finding" id="f-{_safe(fid)}">'
+                f'<div class="finding-header" onclick="toggleDetail(\'{_safe(detail_id)}\')">'
+                + _sev_badge(sev) +
+                f'<span class="finding-id">{_safe(fid)}</span>'
+                f'<span class="finding-cwe">{cwe}</span>'
+                f'<span class="finding-cwe">{owasp}</span>'
+                f'<span class="finding-cvss">CVSS {cvss:.1f}</span>'
+                f'<span class="finding-name">{_safe(vuln_name)}'
+                f' <span style="color:#4a6a90;font-size:12px">({len(group_vulns)} endpoints)</span></span>'
+                f'<span class="finding-toggle">{toggle_ic}</span>'
+                '</div>'
+                f'<div class="finding-body" id="{_safe(detail_id)}" style="display:{display}">'
+                '<div class="field-label">Endpoints Bị Ảnh Hưởng</div>'
+                f'<div class="group-eps">{ep_list}</div>'
+                '<div class="field-label">Mô Tả</div>'
+                f'<div class="field-text">{explanation}</div>'
+                '<div class="field-label">Tác Động</div>'
+                f'<div class="field-text">{impact}</div>'
+                '<div class="field-label">Payload Mẫu</div>'
+                f'<div class="field-text"><code class="code-inline">{payload if payload else "—"}</code></div>'
+                '<div class="field-label">Tham Số</div>'
+                f'<div class="field-text"><code class="code-inline">{parameter}</code></div>'
+                '<div class="field-label">Khắc Phục</div>'
+                f'<ol class="fix-list">{fix_items}</ol>'
+                + _conf_badge(conf_lbl)
+                + fp_callout +
+                '</div></div>'
+            )
+        else:
+            # Single finding block
+            parts.append(_render_single_finding(primary, detail_id, is_open))
+
+    parts.append('</div>')
+    return "".join(parts)
+
+
+def _render_cve_section(cve_list: list[dict]) -> str:
+    parts = [
+        '<a class="anchor" id="cve"></a>',
+        '<div class="section">',
+        '<div class="section-title">CVE Intelligence</div>',
+    ]
+
+    if not cve_list:
+        parts.append(
+            '<div class="callout callout-info">'
+            '<span>ℹ</span>'
+            '<span>Không tìm thấy CVE liên quan đến các công nghệ được phát hiện.</span>'
+            '</div>'
+        )
+    else:
+        parts.append('<div style="overflow-x:auto"><table class="data-table"><thead><tr>')
+        for th in ["CVE ID", "Công Nghệ", "Phiên Bản", "CVSS", "Mức Độ", "KEV", "Ngày Công Bố", "Mô Tả"]:
+            parts.append(f'<th>{_safe(th)}</th>')
+        parts.append('</tr></thead><tbody>')
+
+        for c in cve_list:
+            cve_id  = _safe(c.get("cve_id", ""))
+            tech    = _safe(c.get("technology", ""))
+            ver     = _safe(c.get("version", "")) or "—"
+            cvss    = float(c.get("cvss", 0.0))
+            sev     = str(c.get("severity", ""))
+            pub     = _safe(str(c.get("published_date", ""))[:10])
+            summary = _safe(str(c.get("summary", ""))[:180])
+            is_kev  = bool(c.get("is_actively_exploited") or c.get("exploit_available"))
+            sev_color = _SEV_COLOR.get(sev, "#4a6a90")
+
+            kev_cell = '<span class="kev-pill">ĐANG BỊ KHAI THÁC</span>' if is_kev else '—'
+
+            parts.append(
+                f'<tr>'
+                f'<td><code class="code-inline">{cve_id}</code></td>'
+                f'<td>{tech}</td>'
+                f'<td>{ver}</td>'
+                f'<td style="color:{sev_color};font-weight:700">{cvss:.1f}</td>'
+                f'<td>{_sev_badge(sev)}</td>'
+                f'<td>{kev_cell}</td>'
+                f'<td>{pub}</td>'
+                f'<td>{summary}</td>'
+                f'</tr>'
+            )
+
+        parts.append('</tbody></table></div>')
+
+    parts.append('</div>')
+    return "".join(parts)
+
+
+def _render_asset_section(asset_summary: dict) -> str:
+    domains   = asset_summary.get("domains") or []
+    subdoms   = asset_summary.get("subdomains") or []
+    n_ep      = int(asset_summary.get("total_endpoints", 0))
+    techs     = asset_summary.get("technologies") or []
+
+    tech_pills = "".join(
+        f'<span class="tech-pill">{_safe(t)}</span>' for t in techs
+    ) if techs else '<span style="color:#4a6a90">Không phát hiện</span>'
+
+    def _domain_list(items: list) -> str:
+        if not items:
+            return '<span style="color:#4a6a90;font-size:12px">Không có</span>'
+        return "".join(
+            f'<div style="font-size:12px;color:#8aa8cc;padding:2px 0;'
+            f'font-family:\'SF Mono\',Consolas,monospace">{_safe(str(d))}</div>'
+            for d in items[:20]
+        )
+
+    return (
+        '<a class="anchor" id="assets"></a>'
+        '<div class="section">'
+        '<div class="section-title">Tài Sản</div>'
+        '<div class="metric-tiles">'
+        f'<div class="metric-tile"><div class="metric-tile-val">{len(domains)}</div>'
+        '<div class="metric-tile-lbl">Tên Miền</div></div>'
+        f'<div class="metric-tile"><div class="metric-tile-val">{len(subdoms)}</div>'
+        '<div class="metric-tile-lbl">Tên Miền Phụ</div></div>'
+        f'<div class="metric-tile"><div class="metric-tile-val">{n_ep}</div>'
+        '<div class="metric-tile-lbl">Endpoints</div></div>'
+        f'<div class="metric-tile"><div class="metric-tile-val">{len(techs)}</div>'
+        '<div class="metric-tile-lbl">Công Nghệ</div></div>'
+        '</div>'
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">'
+        f'<div style="background:#111d2e;border:1px solid #1e3352;border-radius:8px;padding:16px">'
+        '<div style="font-size:11px;letter-spacing:2px;color:#4a6a90;text-transform:uppercase;margin-bottom:10px">Tên Miền</div>'
+        + _domain_list(domains) +
+        '</div>'
+        f'<div style="background:#111d2e;border:1px solid #1e3352;border-radius:8px;padding:16px">'
+        '<div style="font-size:11px;letter-spacing:2px;color:#4a6a90;text-transform:uppercase;margin-bottom:10px">Tên Miền Phụ</div>'
+        + _domain_list(subdoms) +
+        '</div>'
+        '</div>'
+        '<div style="background:#111d2e;border:1px solid #1e3352;border-radius:8px;padding:16px">'
+        '<div style="font-size:11px;letter-spacing:2px;color:#4a6a90;text-transform:uppercase;margin-bottom:10px">Công Nghệ Phát Hiện</div>'
+        f'<div class="tech-pills">{tech_pills}</div>'
+        '</div>'
+        '</div>'
+    )
+
+
+def _render_roadmap_section(vulns: list[dict]) -> str:
+    if not vulns:
+        return ""
+
+    # Deduplicate by vulnerability_type, keep highest cvss representative
+    seen: dict[str, dict] = {}
+    for v in vulns:
+        vt   = str(v.get("vulnerability_type", ""))
+        cvss = float(v.get("cvss_score", 0.0))
+        if vt not in seen or cvss > float(seen[vt].get("cvss_score", 0.0)):
+            seen[vt] = v
+
+    rows_data = sorted(seen.values(), key=lambda v: float(v.get("cvss_score", 0.0)), reverse=True)
+
     rows: list[str] = []
-    for v in r.vulnerability_details:
-        fp_note = " <em class='fp-label'>(False Positive)</em>" if v.is_false_positive else ""
+    for v in rows_data:
+        vt     = str(v.get("vulnerability_type", ""))
+        cvss   = float(v.get("cvss_score", 0.0))
+        sev    = str(v.get("severity", ""))
+        fid    = str(v.get("finding_id", ""))[:8]
+        name   = vt.replace("_", " ").title()
+        fixes  = v.get("fix_recommendation") or []
+        action = _safe(fixes[0][:100]) if fixes else "Xem khuyến nghị bảo mật"
+        effort = _safe(_EFFORT_MAP.get(vt, "2–4 giờ"))
+        p_cls, p_lbl = _priority_label(cvss)
+
         rows.append(
-            f"<tr>"
-            f"<td><code>{_esc(v.endpoint)}</code></td>"
-            f"<td>{_esc(v.vulnerability)}{fp_note}</td>"
-            f"<td><code>{_esc(v.owasp)}</code></td>"
-            f"<td><code>{_esc(v.cwe)}</code></td>"
-            f"<td>{_severity_badge(v.severity)}</td>"
-            f"<td>{_esc(v.confidence)}</td>"
-            f"<td>{_esc(v.explanation)}</td>"
-            f"<td>{_esc(v.remediation)}</td>"
-            f"</tr>"
+            f'<tr>'
+            f'<td class="{p_cls}">{_safe(p_lbl)}</td>'
+            f'<td><code class="code-inline">{_safe(fid)}</code></td>'
+            f'<td>{_safe(name)}</td>'
+            f'<td>{action}</td>'
+            f'<td>{effort}</td>'
+            f'<td>{_sev_badge(sev)}</td>'
+            f'</tr>'
         )
 
-    vuln_rows = "\n".join(rows) if rows else (
-        '<tr><td colspan="8" class="empty">No vulnerabilities found.</td></tr>'
+    return (
+        '<a class="anchor" id="roadmap"></a>'
+        '<div class="section">'
+        '<div class="section-title">Lộ Trình Khắc Phục</div>'
+        '<div style="overflow-x:auto"><table class="data-table"><thead><tr>'
+        '<th>Ưu Tiên</th><th>ID</th><th>Lỗ Hổng</th>'
+        '<th>Hành Động</th><th>Nỗ Lực</th><th>Mức Độ</th>'
+        '</tr></thead><tbody>'
+        + "".join(rows) +
+        '</tbody></table></div>'
+        '</div>'
     )
 
-    # --- CVE intelligence table rows ---
-    cve_rows_list: list[str] = []
-    for c in r.cve_details:
-        exploit_icon = "&#x2714;" if c.exploit_available else "&#x2718;"
-        cve_rows_list.append(
-            f"<tr>"
-            f"<td><code>{_esc(c.cve_id)}</code></td>"
-            f"<td>{_esc(c.technology)}</td>"
-            f"<td>{_esc(c.version)}</td>"
-            f"<td>{c.cvss:.1f}</td>"
-            f"<td>{_severity_badge(c.severity)}</td>"
-            f"<td>{_esc(c.summary[:200])}</td>"
-            f"<td style='text-align:center'>{exploit_icon}</td>"
-            f"<td>{_esc(c.source)}</td>"
-            f"</tr>"
-        )
-    cve_rows = "\n".join(cve_rows_list) if cve_rows_list else (
-        '<tr><td colspan="8" class="empty">No CVEs identified.</td></tr>'
+
+# ---------------------------------------------------------------------------
+# Main renderer
+# ---------------------------------------------------------------------------
+
+def _render(scan_result: dict) -> str:
+    target    = _safe(scan_result.get("target", "Unknown"))
+    scan_id   = _safe(scan_result.get("scan_id", ""))
+    started   = str(scan_result.get("started_at", ""))
+    completed = str(scan_result.get("completed_at", ""))
+    duration  = _duration_str(started, completed)
+
+    risk     = scan_result.get("risk_overview") or {}
+    asset    = scan_result.get("asset_summary") or {}
+    vulns    = scan_result.get("analyzed_vulnerabilities") or []
+    cve_list = scan_result.get("cve_intelligence") or []
+
+    generated_at = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+
+    parts: list[str] = []
+
+    # ── HEAD ──────────────────────────────────────────────────────────────
+    parts.append(
+        f'<!DOCTYPE html>\n<html lang="vi">\n<head>\n'
+        f'<meta charset="UTF-8">\n'
+        f'<meta name="viewport" content="width=device-width,initial-scale=1.0">\n'
+        f'<title>Báo Cáo Bảo Mật — {target}</title>\n'
+        f'<style>\n{_CSS}\n</style>\n'
+        f'</head>\n<body>\n'
     )
 
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Security Scan Report &mdash; {_esc(es.target)}</title>
-  <style>
-    *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      font-size: 14px; color: #1f2937; background: #f9fafb; padding: 40px 32px;
-    }}
-    a {{ color: inherit; }}
-    h1 {{ font-size: 1.75rem; font-weight: 700; color: #111827; margin-bottom: 4px; }}
-    h2 {{
-      font-size: 1.05rem; font-weight: 600; color: #374151;
-      margin: 32px 0 14px; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px;
-      text-transform: uppercase; letter-spacing: .06em;
-    }}
-    h3 {{ font-size: 0.875rem; font-weight: 600; color: #374151; margin-bottom: 8px; }}
-    .meta {{ color: #6b7280; font-size: 0.8125rem; margin-bottom: 28px; }}
+    # ── SIDEBAR ───────────────────────────────────────────────────────────
+    parts.append(_render_sidebar(vulns))
 
-    /* Summary cards */
-    .summary-grid {{
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 4px;
-    }}
-    .summary-card {{
-      background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px 18px;
-    }}
-    .summary-card .sk {{
-      font-size: 0.7rem; color: #9ca3af; text-transform: uppercase;
-      letter-spacing: .08em; margin-bottom: 4px;
-    }}
-    .summary-card .sv {{ font-size: 1rem; font-weight: 600; }}
+    # ── MAIN ──────────────────────────────────────────────────────────────
+    parts.append('<main class="main">')
 
-    /* KPI risk grid */
-    .kpi-grid {{
-      display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
-    }}
-    .kpi {{
-      background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
-      padding: 20px 16px; text-align: center;
-    }}
-    .kpi .value {{ font-size: 2.25rem; font-weight: 700; }}
-    .kpi .label {{
-      font-size: 0.7rem; color: #6b7280; margin-top: 4px;
-      text-transform: uppercase; letter-spacing: .08em;
-    }}
-    .critical .value {{ color: #dc2626; }}
-    .high     .value {{ color: #ea580c; }}
-    .medium   .value {{ color: #d97706; }}
-    .low      .value {{ color: #16a34a; }}
+    # Hero
+    parts.append(_render_hero(scan_result, duration))
 
-    /* Table */
-    .table-wrapper {{ overflow-x: auto; }}
-    table {{
-      width: 100%; border-collapse: collapse;
-      background: #fff; border: 1px solid #e5e7eb;
-      border-radius: 8px; overflow: hidden;
-    }}
-    th {{
-      background: #f3f4f6; text-align: left; padding: 10px 14px;
-      font-size: 0.7rem; text-transform: uppercase;
-      letter-spacing: .06em; color: #6b7280; border-bottom: 1px solid #e5e7eb;
-      white-space: nowrap;
-    }}
-    td {{
-      padding: 10px 14px; border-bottom: 1px solid #f3f4f6;
-      vertical-align: top; font-size: 0.8125rem; max-width: 320px;
-      word-break: break-word;
-    }}
-    tr:last-child td {{ border-bottom: none; }}
-    td.empty {{ color: #6b7280; text-align: center; padding: 24px; }}
-    code {{
-      background: #f3f4f6; padding: 1px 5px;
-      border-radius: 4px; font-size: 0.75rem; word-break: break-all;
-    }}
-    .badge {{
-      color: #fff; padding: 2px 8px; border-radius: 4px;
-      font-size: 0.7rem; font-weight: 700; white-space: nowrap;
-    }}
-    .fp-label {{ color: #9ca3af; font-style: italic; font-size: 0.75rem; }}
+    # Score grid
+    parts.append(_render_score_grid(risk))
 
-    /* Asset grid */
-    .asset-grid {{
-      display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;
-    }}
-    .asset-card {{
-      background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 18px;
-    }}
-    ul {{ padding-left: 18px; line-height: 1.9; }}
-    .none {{ color: #9ca3af; font-style: italic; font-size: 0.8rem; }}
-  </style>
-</head>
-<body>
+    # Findings
+    parts.append(_render_findings_section(vulns))
 
-  <h1>Security Scan Report</h1>
-  <p class="meta">
-    Generated&nbsp;{_esc(es.generated_at)}
-    &nbsp;&bull;&nbsp;
-    Scan&nbsp;ID:&nbsp;<code>{_esc(r.scan_id)}</code>
-  </p>
+    # CVE Intelligence
+    parts.append(_render_cve_section(cve_list))
 
-  <!-- ── 1. Executive Summary ─────────────────────────────────────── -->
-  <h2>1. Executive Summary</h2>
-  <div class="summary-grid">
-    <div class="summary-card">
-      <div class="sk">Target</div>
-      <div class="sv">{_esc(es.target) or "<em class='none'>—</em>"}</div>
-    </div>
-    <div class="summary-card">
-      <div class="sk">Scan Mode</div>
-      <div class="sv">{_esc(es.scan_mode.title())}</div>
-    </div>
-    <div class="summary-card">
-      <div class="sk">Duration</div>
-      <div class="sv">{es.scan_duration_seconds}s</div>
-    </div>
-    <div class="summary-card">
-      <div class="sk">Total Findings</div>
-      <div class="sv">{es.total_vulnerabilities}</div>
-    </div>
-    <div class="summary-card">
-      <div class="sk">Confirmed</div>
-      <div class="sv">{es.confirmed_vulnerabilities}</div>
-    </div>
-    <div class="summary-card">
-      <div class="sk">False Positives</div>
-      <div class="sv">{false_positives}</div>
-    </div>
-  </div>
+    # Asset Summary
+    parts.append(_render_asset_section(asset))
 
-  <!-- ── 2. Risk Overview ──────────────────────────────────────────── -->
-  <h2>2. Risk Overview</h2>
-  <div class="kpi-grid">
-    <div class="kpi critical">
-      <div class="value">{ro.critical}</div><div class="label">Critical</div>
-    </div>
-    <div class="kpi high">
-      <div class="value">{ro.high}</div><div class="label">High</div>
-    </div>
-    <div class="kpi medium">
-      <div class="value">{ro.medium}</div><div class="label">Medium</div>
-    </div>
-    <div class="kpi low">
-      <div class="value">{ro.low}</div><div class="label">Low</div>
-    </div>
-  </div>
+    # Remediation Roadmap
+    parts.append(_render_roadmap_section(vulns))
 
-  <!-- ── 3. Vulnerability Details ─────────────────────────────────── -->
-  <h2>3. Vulnerability Details</h2>
-  <div class="table-wrapper">
-    <table>
-      <thead>
-        <tr>
-          <th>Endpoint</th>
-          <th>Vulnerability</th>
-          <th>OWASP</th>
-          <th>CWE</th>
-          <th>Severity</th>
-          <th>Confidence</th>
-          <th>Explanation</th>
-          <th>Remediation</th>
-        </tr>
-      </thead>
-      <tbody>
-        {vuln_rows}
-      </tbody>
-    </table>
-  </div>
+    # Footer
+    parts.append(
+        f'<div class="footer">'
+        f'HQG Security Platform &nbsp;·&nbsp; '
+        f'Scan ID: <code style="font-size:11px;color:#4a6a90">{scan_id}</code>'
+        f' &nbsp;·&nbsp; Được tạo lúc {_safe(generated_at)}'
+        f'</div>'
+    )
 
-  <!-- ── 4. CVE Intelligence ───────────────────────────────────────── -->
-  <h2>4. CVE Intelligence</h2>
-  <div class="table-wrapper">
-    <table>
-      <thead>
-        <tr>
-          <th>CVE ID</th>
-          <th>Technology</th>
-          <th>Version</th>
-          <th>CVSS</th>
-          <th>Severity</th>
-          <th>Summary</th>
-          <th>Exploit</th>
-          <th>Source</th>
-        </tr>
-      </thead>
-      <tbody>
-        {cve_rows}
-      </tbody>
-    </table>
-  </div>
+    parts.append('</main>')
 
-  <!-- ── 5. Asset Summary ──────────────────────────────────────────── -->
-  <h2>5. Asset Summary</h2>
-  <div class="asset-grid">
-    <div class="asset-card">
-      <h3>Discovered Domains</h3>
-      {_ul(asset.domains)}
-    </div>
-    <div class="asset-card">
-      <h3>Subdomains</h3>
-      {_ul(asset.subdomains)}
-    </div>
-    <div class="asset-card">
-      <h3>Services</h3>
-      {_ul(asset.services)}
-    </div>
-    <div class="asset-card">
-      <h3>Technologies</h3>
-      {_ul(asset.technologies)}
-    </div>
-  </div>
+    # ── INLINE JS ─────────────────────────────────────────────────────────
+    parts.append(f'<script>\n{_JS}\n</script>\n</body>\n</html>')
 
-</body>
-</html>"""
+    return "".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def write_html(scan_result: dict, output_path: Path) -> None:
+    """
+    Render *scan_result* as a self-contained dark-theme HTML security report.
+
+    Args:
+        scan_result: Dict từ scan pipeline (xem module docstring cho schema).
+        output_path: Path của file .html sẽ được ghi.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    html_content = _render(scan_result)
+    output_path.write_text(html_content, encoding="utf-8")

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 
 
 OWASP_MAP: dict[str, str] = {
@@ -27,17 +29,30 @@ CWE_MAP: dict[str, str] = {
     "time_based_cmdi": "CWE-78",
 }
 
-SEVERITY_MAP: dict[str, str] = {
-    "sqli": "Critical",
-    "xss": "High",
-    "ssrf": "High",
-    "cmdi": "Critical",
-    "lfi": "High",
-    "path_traversal": "High",
-    "info_disclosure": "Medium",
-    "time_based_sqli": "Critical",
-    "time_based_cmdi": "Critical",
+CVSS_MAP: dict[str, float] = {
+    "sqli": 9.8,
+    "xss": 6.1,
+    "ssrf": 8.6,
+    "cmdi": 9.8,
+    "lfi": 7.5,
+    "path_traversal": 7.5,
+    "info_disclosure": 5.3,
+    "time_based_sqli": 7.5,
+    "time_based_cmdi": 7.5,
 }
+
+
+def _cvss_to_severity(score: float) -> str:
+    """Map CVSS v3.1 score to severity string."""
+    if score >= 9.0:
+        return "Critical"
+    if score >= 7.0:
+        return "High"
+    if score >= 4.0:
+        return "Medium"
+    if score > 0:
+        return "Low"
+    return "None"
 
 VULN_NAME_MAP: dict[str, str] = {
     "sqli": "SQL Injection",
@@ -57,9 +72,13 @@ class VulnerabilityFinding:
     endpoint: str
     payload: str
     vulnerability_type: str
-    confidence: str       # High | Medium | Low
-    detection_method: str # error_pattern | reflection | diff | time_based | lfi_pattern
-    evidence: str = field(default="")  # response snippet proving the finding
+    confidence: str        # High | Medium | Low
+    detection_method: str  # error_pattern | reflection | diff | time_based | lfi_pattern | template
+    evidence: str = field(default="")   # response snippet proving the finding
+    parameter: str = field(default="")  # injected parameter name, e.g. "q", "id"
+    http_method: str = field(default="GET")
+    finding_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    discovered_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
 
     @property
     def vulnerability(self) -> str:
@@ -74,19 +93,28 @@ class VulnerabilityFinding:
         return CWE_MAP.get(self.vulnerability_type, "CWE-0")
 
     @property
+    def cvss_score(self) -> float:
+        return CVSS_MAP.get(self.vulnerability_type, 0.0)
+
+    @property
     def severity(self) -> str:
-        return SEVERITY_MAP.get(self.vulnerability_type, "Medium")
+        return _cvss_to_severity(self.cvss_score)
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "finding_id": self.finding_id,
             "endpoint": self.endpoint,
+            "parameter": self.parameter,
+            "http_method": self.http_method,
             "payload": self.payload,
             "vulnerability": self.vulnerability,
             "vulnerability_type": self.vulnerability_type,
             "owasp": self.owasp,
             "cwe": self.cwe,
+            "cvss_score": self.cvss_score,
             "severity": self.severity,
             "confidence": self.confidence,
             "detection_method": self.detection_method,
             "evidence": self.evidence,
+            "discovered_at": self.discovered_at,
         }

@@ -53,11 +53,15 @@ def _check_xss_reflection(payload: str, body: str) -> tuple[bool, str]:
             end = min(len(variant_body), idx + len(payload) + 60)
             return True, variant_body[start:end]
 
-    # Partial marker detection — catches encoding-transformed reflection
+    # Partial marker detection — catches encoding-transformed reflection.
+    # Only flag if BOTH the payload AND the response body contain this marker,
+    # preventing false positives from ordinary HTML tags like <body>, <img>.
     body_lower = body.lower()
+    payload_lower = payload.lower()
     for marker in _XSS_MARKERS:
-        if marker.lower() in body_lower:
-            idx = body_lower.find(marker.lower())
+        marker_lower = marker.lower()
+        if marker_lower in payload_lower and marker_lower in body_lower:
+            idx = body_lower.find(marker_lower)
             start = max(0, idx - 30)
             end = min(len(body), idx + len(marker) + 100)
             return True, body[start:end]
@@ -150,18 +154,21 @@ def analyze_response(
                 )
             )
 
-    # 6. Information disclosure (any injection type that leaks internal data)
-    m = match_info_disclosure(response_body)
-    if m:
-        findings.append(
-            VulnerabilityFinding(
-                endpoint=endpoint,
-                payload=payload,
-                vulnerability_type="info_disclosure",
-                confidence="Medium",
-                detection_method="error_pattern",
-                evidence=extract_evidence(m, response_body),
+    # 6. Information disclosure — only check when probing for it directly,
+    # or when the server returns a 5xx error (stack traces, debug pages).
+    # Avoids duplicate findings from pages that always show "PHP Version" in footer.
+    if vtype == "info_disclosure" or (response_code is not None and response_code >= 500):
+        m = match_info_disclosure(response_body)
+        if m:
+            findings.append(
+                VulnerabilityFinding(
+                    endpoint=endpoint,
+                    payload=payload,
+                    vulnerability_type="info_disclosure",
+                    confidence="Medium",
+                    detection_method="error_pattern",
+                    evidence=extract_evidence(m, response_body),
+                )
             )
-        )
 
     return findings

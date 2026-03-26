@@ -33,7 +33,14 @@ async def _fetch_baseline(client: httpx.AsyncClient, endpoint: str) -> tuple[int
         return None, 0, round(elapsed, 4)
 
 
-async def _detect_async(injection_results: list[dict[str, object]]) -> list[VulnerabilityFinding]:
+async def _detect_async(
+    injection_results: list[dict[str, object]],
+    detection_config: dict | None = None,
+) -> list[VulnerabilityFinding]:
+    _cfg = detection_config or {}
+    _skip_timing = bool(_cfg.get("skip_timing", False))
+    _skip_diff = bool(_cfg.get("skip_diff", False))
+
     # Group results by endpoint so we can compute a shared baseline per endpoint
     by_endpoint: dict[str, list[dict[str, object]]] = defaultdict(list)
     for item in injection_results:
@@ -72,43 +79,53 @@ async def _detect_async(injection_results: list[dict[str, object]]) -> list[Vuln
             response_code = int(code) if code is not None else None
             response_length = int(item.get("response_length", 0))
             response_time = float(item.get("response_time", 0.0))
+            parameter_name = str(item.get("parameter", ""))
+            http_method = str(item.get("http_method", "GET"))
 
             # Response analyzer: error patterns, reflection, artifacts
             for finding in analyze_response(endpoint, payload, vuln_type, body, response_code):
+                finding.parameter = parameter_name
+                finding.http_method = http_method
                 key = (finding.endpoint, finding.vulnerability_type, finding.detection_method)
                 if key not in seen:
                     seen.add(key)
                     all_findings.append(finding)
 
-            # Diff analyzer: baseline vs injected
-            for finding in analyze_diff(
-                endpoint=endpoint,
-                payload=payload,
-                vulnerability_type=vuln_type,
-                baseline_code=baseline_code,
-                baseline_length=baseline_length,
-                injected_code=response_code,
-                injected_length=response_length,
-                injected_body=body,
-            ):
-                key = (finding.endpoint, finding.vulnerability_type, finding.detection_method)
-                if key not in seen:
-                    seen.add(key)
-                    all_findings.append(finding)
+            # Diff analyzer: baseline vs injected (skip trong quick mode)
+            if not _skip_diff:
+                for finding in analyze_diff(
+                    endpoint=endpoint,
+                    payload=payload,
+                    vulnerability_type=vuln_type,
+                    baseline_code=baseline_code,
+                    baseline_length=baseline_length,
+                    injected_code=response_code,
+                    injected_length=response_length,
+                    injected_body=body,
+                ):
+                    finding.parameter = parameter_name
+                    finding.http_method = http_method
+                    key = (finding.endpoint, finding.vulnerability_type, finding.detection_method)
+                    if key not in seen:
+                        seen.add(key)
+                        all_findings.append(finding)
 
-            # Time-based analyzer
-            time_finding = analyze_timing(
-                endpoint=endpoint,
-                payload=payload,
-                vulnerability_type=vuln_type,
-                response_time=response_time,
-                baseline_time=baseline_time,
-            )
-            if time_finding:
-                key = (time_finding.endpoint, time_finding.vulnerability_type, time_finding.detection_method)
-                if key not in seen:
-                    seen.add(key)
-                    all_findings.append(time_finding)
+            # Time-based analyzer (skip trong quick mode)
+            if not _skip_timing:
+                time_finding = analyze_timing(
+                    endpoint=endpoint,
+                    payload=payload,
+                    vulnerability_type=vuln_type,
+                    response_time=response_time,
+                    baseline_time=baseline_time,
+                )
+                if time_finding:
+                    time_finding.parameter = parameter_name
+                    time_finding.http_method = http_method
+                    key = (time_finding.endpoint, time_finding.vulnerability_type, time_finding.detection_method)
+                    if key not in seen:
+                        seen.add(key)
+                        all_findings.append(time_finding)
 
     return all_findings
 
@@ -117,8 +134,9 @@ async def _detect_async(injection_results: list[dict[str, object]]) -> list[Vuln
 def detect_vulnerabilities(
     scan_id: str,
     injection_results: list[dict[str, object]],
+    detection_config: dict | None = None,
 ) -> dict[str, object]:
-    findings = asyncio.run(_detect_async(injection_results))
+    findings = asyncio.run(_detect_async(injection_results, detection_config=detection_config))
 
     return {
         "scan_id": scan_id,

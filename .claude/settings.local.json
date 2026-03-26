@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /c/Users/dhqkh/Documents/secure-shield-hq/src/pages -type f -name \"*.tsx\" -exec wc -l {} +)",
+      "Bash(docker compose:*)",
+      "Bash(curl -s http://localhost:8000/openapi.json)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); props=d[''''components''''][''''schemas''''][''''StartScanRequest''''][''''properties'''']; print\\(json.dumps\\(props, indent=2\\)\\)\")",
+      "Bash(.venv/Scripts/python.exe -c \"import sys,json; d=json.load\\(sys.stdin\\); props=d[''''components''''][''''schemas''''][''''StartScanRequest''''][''''properties'''']; print\\(json.dumps\\(props, indent=2\\)\\)\")"
+    ]
+  }
+}

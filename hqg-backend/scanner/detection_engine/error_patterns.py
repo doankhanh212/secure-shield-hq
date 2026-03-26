@@ -67,12 +67,12 @@ LFI_PATTERNS: list[re.Pattern[str]] = [
 # ---------------------------------------------------------------------------
 
 SSRF_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"127\.0\.0\.1", re.IGNORECASE),
     re.compile(r"169\.254\.169\.254", re.IGNORECASE),
-    re.compile(r"internal\s+server\s+error", re.IGNORECASE),
-    re.compile(r"connection\s+refused", re.IGNORECASE),
     re.compile(r"ami-id", re.IGNORECASE),
     re.compile(r"iam.*security-credentials", re.IGNORECASE),
+    re.compile(r"latest/meta-data", re.IGNORECASE),
+    re.compile(r"computeMetadata", re.IGNORECASE),
+    re.compile(r"opc-request-id", re.IGNORECASE),
 ]
 
 # ---------------------------------------------------------------------------

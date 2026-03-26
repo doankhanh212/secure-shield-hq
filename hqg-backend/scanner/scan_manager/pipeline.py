@@ -5,6 +5,7 @@ import logging
 
 from scanner.scan_manager.models import ScanStage, ScanStatus
 from scanner.scan_manager.scan_modes import ScanModeConfig
+from scanner.scan_manager.scan_profiles import get_profile
 from scanner.scan_manager.scan_service import get_scan, update_scan
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,18 @@ async def run_pipeline(
     target: str,
     config: ScanModeConfig,
 ) -> dict[str, object]:
+    # Lấy chi tiết profile (quick/standard/…) để kiểm tra enabled/disabled
+    _profile = get_profile(config.name)
+    logger.info(
+        "scan=%s mode=%s payload_engine=%s ai_analyzer=%s cve_intelligence=%s security_checks=%s",
+        scan_id,
+        config.name,
+        _profile["payload_engine"]["enabled"],
+        _profile["ai_analyzer"]["enabled"],
+        _profile["cve_intelligence"]["enabled"],
+        _profile.get("security_checks", {}).get("enabled", False),
+    )
+
     _ensure_not_cancelled(scan_id)
 
     # ------------------------------------------------------------------ #
@@ -140,7 +153,40 @@ async def run_pipeline(
     _set_stage(scan_id, ScanStage.CRAWLING, 0.40)
 
     # ------------------------------------------------------------------ #
-    # Stage 2.5 – Template Scan                                           #
+    # Stage 2.5 – Security Checks (Quick mode)                           #
+    # ------------------------------------------------------------------ #
+    security_check_results: list[dict[str, object]] = []
+    quick_summary: dict[str, object] = {}
+
+    if _profile.get("security_checks", {}).get("enabled", False):
+        logger.info("scan=%s stage=security_checks enabled (quick mode)", scan_id)
+        from scanner.scan_manager.security_checks import (
+            generate_quick_summary as _gen_summary,
+            run_all_checks as _run_checks,
+        )
+
+        _sc_results = await _run_checks(target_url=target)
+        security_check_results = [r.to_dict() for r in _sc_results]
+
+        _raw_techs_sc: list[str] = []
+        for _item in discovery_output.get("technologies") or []:
+            if isinstance(_item, dict):
+                _n = _item.get("name") or _item.get("technology", "")
+                if _n:
+                    _raw_techs_sc.append(str(_n))
+            elif isinstance(_item, str):
+                _raw_techs_sc.append(_item)
+
+        quick_summary = _gen_summary(_sc_results, _raw_techs_sc)
+        logger.info(
+            "scan=%s security_checks: %d issues found",
+            scan_id, quick_summary.get("total_issues", 0),
+        )
+    else:
+        logger.info("scan=%s stage=security_checks disabled (mode=%s)", scan_id, config.name)
+
+    # ------------------------------------------------------------------ #
+    # Stage 2.6 – Template Scan                                           #
     # ------------------------------------------------------------------ #
     _set_stage(scan_id, ScanStage.TEMPLATE_SCAN, 0.41)
 
@@ -165,7 +211,9 @@ async def run_pipeline(
 
     injection_results: list[dict[str, object]] = []
 
-    if config.has_stage("payload_injection") and endpoints:
+    _payload_enabled = _profile["payload_engine"]["enabled"]
+    if config.has_stage("payload_injection") and _payload_enabled and endpoints:
+        logger.info("scan=%s stage=payload_injection enabled", scan_id)
         from scanner.payload_engine.tasks import _inject_payloads_async
 
         raw = await _inject_payloads_async(
@@ -177,6 +225,8 @@ async def run_pipeline(
             endpoint_info=endpoint_info,
         )
         injection_results = raw
+    elif not _payload_enabled:
+        logger.info("scan=%s stage=payload_injection disabled (mode=%s)", scan_id, config.name)
 
     _ensure_not_cancelled(scan_id)
     _set_stage(scan_id, ScanStage.PAYLOAD_INJECTION, 0.65)
@@ -188,11 +238,20 @@ async def run_pipeline(
 
     detection_findings: list[dict[str, object]] = []
 
+    _detection_config = _profile.get("detection_engine", {})
     if config.has_stage("detection") and injection_results:
+        logger.info(
+            "scan=%s stage=detection enabled skip_timing=%s skip_diff=%s",
+            scan_id,
+            _detection_config.get("skip_timing", False),
+            _detection_config.get("skip_diff", False),
+        )
         from scanner.detection_engine.tasks import _detect_async
 
-        findings = await _detect_async(injection_results)
+        findings = await _detect_async(injection_results, detection_config=_detection_config)
         detection_findings = [f.to_dict() for f in findings]
+    else:
+        logger.info("scan=%s stage=detection skipped (no injection results)", scan_id)
 
     # Merge template-engine findings with detection findings
     all_findings: list[dict[str, object]] = template_findings + detection_findings
@@ -207,22 +266,24 @@ async def run_pipeline(
 
     analyzed_findings: list[dict[str, object]] = all_findings
 
-    if config.has_stage("ai_analysis") and all_findings:
-        from ai.analyzer.tasks import _analyze_single
+    _ai_enabled = _profile["ai_analyzer"]["enabled"]
+    if config.has_stage("ai_analysis") and _ai_enabled and all_findings:
+        logger.info("scan=%s stage=ai_analysis enabled", scan_id)
+        from ai.analyzer.analyzer import analyze_finding as _analyze_finding
 
         analyzed: list[dict[str, object]] = []
         for raw_finding in all_findings:
             try:
-                result = _analyze_single(raw_finding)
+                result = _analyze_finding(raw_finding)
                 if result:
                     analyzed.append(result.to_dict())
                 else:
-                    # AI returned nothing — keep the raw detection finding
                     analyzed.append(raw_finding)
             except Exception:
-                # AI failed for this finding — keep original
                 analyzed.append(raw_finding)
         analyzed_findings = analyzed if analyzed else all_findings
+    else:
+        logger.info("scan=%s stage=ai_analysis disabled (mode=%s)", scan_id, config.name)
 
     _ensure_not_cancelled(scan_id)
     _set_stage(scan_id, ScanStage.AI_ANALYSIS, 0.88)
@@ -234,32 +295,193 @@ async def run_pipeline(
 
     cve_output: dict[str, object] = {}
 
-    if config.has_stage("cve_intelligence"):
-        from scanner.cve_intelligence.tasks import _enrich_async
+    _cve_enabled = _profile["cve_intelligence"]["enabled"]
+    if config.has_stage("cve_intelligence") and _cve_enabled:
+        logger.info("scan=%s stage=cve_intelligence enabled", scan_id)
+        import json as _json
 
-        technologies: list[str] = []
-        service_details: list[dict[str, object]] = []
+        from scanner.cve_intelligence.kev_client import (
+            fetch_kev_catalog as _fetch_kev_set,
+            is_actively_exploited as _is_kev,
+        )
+        from scanner.cve_intelligence.nvd_client import search_nvd as _search_nvd
+        from scanner.cve_intelligence.tech_parser import parse_all as _parse_techs
+        from backend.config.config import get_settings as _get_settings
 
-        for item in discovery_output.get("technologies") or []:
-            if isinstance(item, dict):
-                name = item.get("name") or item.get("technology", "")
-                if name:
-                    technologies.append(str(name))
-            elif isinstance(item, str):
-                technologies.append(item)
+        _nvd_api_key: str = ""
+        try:
+            _nvd_api_key = _get_settings().nvd_api_key or ""
+            if _nvd_api_key:
+                logger.info("scan=%s CVE stage: NVD API key configured", scan_id)
+            else:
+                logger.warning(
+                    "scan=%s CVE stage: NVD_API_KEY not set — rate limit 5 req/30s applies",
+                    scan_id,
+                )
+        except Exception:
+            logger.debug("scan=%s CVE stage: could not read NVD_API_KEY from settings", scan_id)
 
-        for item in discovery_output.get("services") or []:
-            if isinstance(item, dict):
-                service_details.append(item)
+        # ── Collect raw technology strings from asset discovery ────────────
+        _raw_techs: list[str] = []
+        for _item in discovery_output.get("technologies") or []:
+            if isinstance(_item, dict):
+                _n = _item.get("name") or _item.get("technology", "")
+                if _n:
+                    _raw_techs.append(str(_n))
+            elif isinstance(_item, str):
+                _raw_techs.append(_item)
 
-        result = await _enrich_async(
-            technologies=technologies,
-            service_details=service_details,
-            findings=analyzed_findings,
+        # Also scan service banners/headers for "Name/Version" strings
+        for _svc in discovery_output.get("services") or []:
+            if not isinstance(_svc, dict):
+                continue
+            _banner = str(_svc.get("server_banner", "") or "")
+            if _banner:
+                _raw_techs.append(_banner)
+            _hdrs = _svc.get("headers") or {}
+            if isinstance(_hdrs, dict):
+                for _hval in _hdrs.values():
+                    if isinstance(_hval, str) and "/" in _hval:
+                        _raw_techs.append(_hval)
+
+        _parsed_techs = _parse_techs(_raw_techs)
+        logger.info(
+            "scan=%s cve_stage: %d raw tech strings → %d parsed (name, version) pairs",
+            scan_id, len(_raw_techs), len(_parsed_techs),
         )
 
-        cve_output = result.get("cve_intelligence", {})
-        analyzed_findings = result.get("enriched_findings", analyzed_findings)
+        # ── Redis connection (best-effort) ─────────────────────────────────
+        _redis = None
+        try:
+            import redis.asyncio as _aioredis
+            _redis = _aioredis.from_url(
+                _get_settings().redis_url,
+                socket_connect_timeout=3,
+                decode_responses=True,
+            )
+        except Exception:
+            logger.debug("scan=%s CVE stage: Redis unavailable, skipping NVD cache", scan_id)
+
+        # ── CISA KEV catalog ───────────────────────────────────────────────
+        _kev_set: set[str] = set()
+        try:
+            _kev_set = await _fetch_kev_set(redis_client=_redis)
+            logger.info("scan=%s KEV catalog: %d actively-exploited CVEs", scan_id, len(_kev_set))
+        except Exception as _ke:
+            logger.warning("scan=%s KEV fetch failed (continuing): %s", scan_id, _ke)
+
+        # ── NVD per-technology lookup with rate-limit semaphore ────────────
+        _nvd_sem = asyncio.Semaphore(2)   # max 2 concurrent NVD requests
+        _all_cve_dicts: list[dict[str, object]] = []
+        _seen_cve_ids: set[str] = set()
+
+        async def _nvd_fetch_one(tech_name: str, tech_version: str) -> None:
+            _cache_key = f"nvd:{tech_name}:{tech_version}"
+
+            # Try Redis cache before hitting NVD
+            if _redis:
+                try:
+                    _cached = await _redis.get(_cache_key)
+                    if _cached:
+                        for _r in _json.loads(_cached):
+                            _cid = str(_r.get("cve_id", ""))
+                            if _cid and _cid not in _seen_cve_ids:
+                                _seen_cve_ids.add(_cid)
+                                _r["is_actively_exploited"] = _is_kev(_cid, _kev_set)
+                                _all_cve_dicts.append(_r)
+                        logger.debug("CVE cache hit: %s", _cache_key)
+                        return
+                except Exception:
+                    pass  # cache miss or Redis error — fall through to NVD
+
+            async with _nvd_sem:
+                try:
+                    _records = await _search_nvd(tech_name, tech_version, api_key=_nvd_api_key or None)
+                    logger.debug(
+                        "NVD '%s %s' → %d CVEs",
+                        tech_name, tech_version, len(_records),
+                    )
+                except Exception as _ne:
+                    logger.warning(
+                        "scan=%s NVD lookup failed for %s/%s: %s",
+                        scan_id, tech_name, tech_version, _ne,
+                    )
+                    _records = []
+                # Respect NVD rate limit: ≤2 req/s without API key
+                await asyncio.sleep(0.7)
+
+            _to_cache: list[dict] = []
+            for _rec in _records:
+                _rd = _rec.to_dict()
+                _cid = str(_rd.get("cve_id", ""))
+                _rd["is_actively_exploited"] = _is_kev(_cid, _kev_set)
+                _to_cache.append(_rd)
+                if _cid and _cid not in _seen_cve_ids:
+                    _seen_cve_ids.add(_cid)
+                    _all_cve_dicts.append(_rd)
+
+            if _redis and _to_cache:
+                try:
+                    await _redis.setex(_cache_key, 86_400, _json.dumps(_to_cache))
+                except Exception:
+                    pass  # caching is best-effort
+
+        if _parsed_techs:
+            _nvd_tasks = [_nvd_fetch_one(_n, _v) for _n, _v in _parsed_techs]
+            await asyncio.gather(*_nvd_tasks, return_exceptions=True)
+
+        _all_cve_dicts.sort(key=lambda _r: float(_r.get("cvss", 0.0)), reverse=True)
+        logger.info(
+            "scan=%s CVE stage: %d unique CVEs found (%d actively exploited)",
+            scan_id,
+            len(_all_cve_dicts),
+            sum(1 for _r in _all_cve_dicts if _r.get("is_actively_exploited")),
+        )
+
+        # ── Enrich findings: add related_cve_ids + is_actively_exploited ──
+        _tech_to_cve_ids: dict[str, list[str]] = {}
+        for _r in _all_cve_dicts:
+            _t = str(_r.get("technology", "")).lower()
+            _cid = str(_r.get("cve_id", ""))
+            if _t and _cid:
+                _tech_to_cve_ids.setdefault(_t, []).append(_cid)
+
+        _enriched_findings: list[dict[str, object]] = []
+        for _f in analyzed_findings:
+            _fc = dict(_f)
+            _related: list[str] = []
+            _exploited = False
+            for _cids in _tech_to_cve_ids.values():
+                _related.extend(_cids)
+                if any(_is_kev(_c, _kev_set) for _c in _cids):
+                    _exploited = True
+            _fc["related_cve_ids"] = list(dict.fromkeys(_related))[:10]  # dedup, cap 10
+            _fc["is_actively_exploited"] = _exploited
+            _enriched_findings.append(_fc)
+        if _enriched_findings:
+            analyzed_findings = _enriched_findings
+
+        # ── Build cve_output ───────────────────────────────────────────────
+        cve_output = {
+            "software_versions": [
+                {"technology": _n, "version": _v} for _n, _v in _parsed_techs
+            ],
+            "cve_records": _all_cve_dicts,
+            "total_cves": len(_all_cve_dicts),
+            "actively_exploited_count": sum(
+                1 for _r in _all_cve_dicts if _r.get("is_actively_exploited")
+            ),
+            "kev_catalog_size": len(_kev_set),
+        }
+
+        # ── Close Redis ────────────────────────────────────────────────────
+        if _redis:
+            try:
+                await _redis.aclose()
+            except Exception:
+                pass
+    else:
+        logger.info("scan=%s stage=cve_intelligence disabled (mode=%s)", scan_id, config.name)
 
     _ensure_not_cancelled(scan_id)
     _set_stage(scan_id, ScanStage.DONE, 1.0)
@@ -275,4 +497,6 @@ async def run_pipeline(
         "findings": analyzed_findings,
         "total_findings": len(analyzed_findings),
         "cve_intelligence": cve_output,
+        "security_checks": security_check_results,
+        "quick_summary": quick_summary,
     }

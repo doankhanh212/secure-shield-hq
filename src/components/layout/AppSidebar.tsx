@@ -67,14 +67,14 @@ export function AppSidebar() {
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all duration-200 group",
                 isActive
-                  ? "bg-primary/10 text-primary border border-primary/20"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground border border-transparent"
+                  ? "bg-[#06b6d4]/10 text-[#06b6d4] border border-[#06b6d4]/20 border-l-2 border-l-[#06b6d4]"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground border border-transparent border-l-2 border-l-transparent"
               )}
             >
-              <item.icon className={cn("h-5 w-5 shrink-0 transition-colors", isActive && "text-primary")} />
+              <item.icon className={cn("h-5 w-5 shrink-0 transition-colors", isActive && "text-[#06b6d4]")} />
               {!collapsed && <span>{t(item.key)}</span>}
               {isActive && !collapsed && (
-                <div className="ml-auto h-1.5 w-1.5 rounded-full bg-primary animate-scan-pulse" />
+                <div className="ml-auto h-1.5 w-1.5 rounded-full bg-[#06b6d4] animate-pulse" />
               )}
             </Link>
           );

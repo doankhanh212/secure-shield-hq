@@ -4,38 +4,252 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, ChevronRight, ChevronDown, ExternalLink, Zap, Shield, Wrench, FileCode } from "lucide-react";
+import {
+  Search,
+  ChevronDown,
+  ChevronRight,
+  Shield,
+  Wrench,
+  FileCode,
+  Terminal,
+  AlertTriangle,
+  Info,
+  ShieldAlert,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getVulnerabilities, patchVulnerability, type Vulnerability } from "@/services/api";
 
-const severityStyles: Record<string, string> = {
-  critical: "bg-destructive/10 text-destructive border-destructive/20",
-  high: "bg-warning/10 text-warning border-warning/20",
-  medium: "bg-info/10 text-info border-info/20",
-  low: "bg-muted text-muted-foreground border-border",
+const SEVERITY_TABS = [
+  { value: "", label: "Tất cả", color: "text-foreground" },
+  { value: "critical", label: "Critical", color: "text-red-400" },
+  { value: "high", label: "High", color: "text-orange-400" },
+  { value: "medium", label: "Medium", color: "text-yellow-400" },
+  { value: "low", label: "Low", color: "text-green-400" },
+];
+
+const severityBadgeStyles: Record<string, string> = {
+  critical: "bg-red-500/10 text-red-400 border-red-500/30",
+  high: "bg-orange-500/10 text-orange-400 border-orange-500/30",
+  medium: "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
+  low: "bg-green-500/10 text-green-400 border-green-500/30",
 };
 
-const statusStyles: Record<string, string> = {
-  verified: "bg-success/10 text-success border-success/20",
-  open: "bg-primary/10 text-primary border-primary/20",
-  false_positive: "bg-muted text-muted-foreground border-border",
+const severityLeftBorder: Record<string, string> = {
+  critical: "border-l-red-500",
+  high: "border-l-orange-500",
+  medium: "border-l-yellow-500",
+  low: "border-l-green-500",
 };
 
 const VULN_DISPLAY_NAMES: Record<string, string> = {
   time_based_sqli: "SQL Injection (Blind – Time Based)",
   sqli_error: "SQL Injection (Error Based)",
   sqli_union: "SQL Injection (UNION Based)",
+  sqli: "SQL Injection",
   xss_reflected: "Cross-Site Scripting (Reflected)",
   xss_stored: "Cross-Site Scripting (Stored)",
+  xss: "Cross-Site Scripting",
   cmdi: "Command Injection",
   cmdi_basic: "Command Injection (Basic)",
   lfi: "Local File Inclusion",
+  path_traversal: "Path Traversal",
   ssrf: "Server-Side Request Forgery",
   open_redirect: "Open Redirect",
   info_disclosure: "Information Disclosure",
 };
+
+function SeverityDot({ severity }: { severity: string }) {
+  const colors: Record<string, string> = {
+    critical: "bg-red-500",
+    high: "bg-orange-500",
+    medium: "bg-yellow-500",
+    low: "bg-green-500",
+  };
+  return (
+    <span
+      className={cn("inline-block w-2 h-2 rounded-full shrink-0", colors[severity?.toLowerCase()] ?? "bg-muted")}
+    />
+  );
+}
+
+function VulnCard({ vuln, expanded, onToggle, onFpToggle, fpPending }: {
+  vuln: Vulnerability;
+  expanded: boolean;
+  onToggle: () => void;
+  onFpToggle: () => void;
+  fpPending: boolean;
+}) {
+  const sev = vuln.severity?.toLowerCase() ?? "low";
+  const displayName = VULN_DISPLAY_NAMES[vuln.vulnerability_type] ?? vuln.vulnerability_type;
+
+  return (
+    <div
+      className={cn(
+        "bg-card rounded-lg border border-border border-l-4 transition-shadow hover:shadow-sm",
+        severityLeftBorder[sev] ?? "border-l-border"
+      )}
+    >
+      {/* Card Header */}
+      <button
+        className="w-full flex items-center gap-3 px-4 py-3.5 text-left"
+        onClick={onToggle}
+      >
+        <SeverityDot severity={sev} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold">{displayName}</span>
+            <Badge
+              variant="outline"
+              className={cn("text-[10px] font-bold uppercase px-1.5 py-0", severityBadgeStyles[sev])}
+            >
+              {vuln.severity}
+            </Badge>
+            {vuln.confidence_label && (
+              <Badge variant="outline" className="text-[10px] bg-muted/50 border-border text-muted-foreground px-1.5 py-0">
+                {vuln.confidence_label}
+              </Badge>
+            )}
+            {vuln.is_false_positive && (
+              <Badge variant="outline" className="text-[10px] bg-muted/50 border-border text-muted-foreground px-1.5 py-0">
+                Không hợp lệ
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground font-mono flex-wrap">
+            <span className="truncate max-w-[300px]">{vuln.endpoint}</span>
+            {vuln.parameter && (
+              <>
+                <span>•</span>
+                <span className="bg-muted/60 px-1.5 rounded border border-border">{vuln.parameter}</span>
+              </>
+            )}
+            {vuln.owasp_category && (
+              <>
+                <span>•</span>
+                <span>{vuln.owasp_category}</span>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {vuln.cvss_score !== undefined && (
+            <span className="text-xs font-mono font-semibold text-muted-foreground">
+              CVSS {vuln.cvss_score.toFixed(1)}
+            </span>
+          )}
+          {expanded ? (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          )}
+        </div>
+      </button>
+
+      {/* Expanded Detail */}
+      {expanded && (
+        <div className="border-t border-border px-4 py-4 space-y-4 animate-in fade-in-0 duration-150">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Left Column */}
+            <div className="space-y-3">
+              {vuln.explanation && (
+                <div className="flex items-start gap-2.5">
+                  <Shield className="h-4 w-4 text-[#06b6d4] mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+                      Giải thích
+                    </p>
+                    <p className="text-sm leading-relaxed">{vuln.explanation}</p>
+                  </div>
+                </div>
+              )}
+              {vuln.impact && (
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle className="h-4 w-4 text-orange-400 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+                      Tác động
+                    </p>
+                    <p className="text-sm leading-relaxed">{vuln.impact}</p>
+                  </div>
+                </div>
+              )}
+              {(vuln.poc || vuln.payload) && (
+                <div className="flex items-start gap-2.5">
+                  <FileCode className="h-4 w-4 text-yellow-400 mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+                      PoC / Payload
+                    </p>
+                    <pre className="text-xs font-mono bg-muted/60 border border-border rounded px-3 py-2 overflow-x-auto whitespace-pre-wrap break-all">
+                      {vuln.poc ?? vuln.payload}
+                    </pre>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Right Column */}
+            <div className="space-y-3">
+              {(vuln.remediation || vuln.fix_recommendation) && (
+                <div className="flex items-start gap-2.5">
+                  <Wrench className="h-4 w-4 text-green-400 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+                      Cách khắc phục
+                    </p>
+                    <p className="text-sm leading-relaxed">{vuln.fix_recommendation ?? vuln.remediation}</p>
+                  </div>
+                </div>
+              )}
+              {vuln.evidence && (
+                <div className="flex items-start gap-2.5">
+                  <Terminal className="h-4 w-4 text-violet-400 mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+                      Bằng chứng
+                    </p>
+                    <pre className="text-xs font-mono bg-muted/60 border border-border rounded px-3 py-2 overflow-x-auto whitespace-pre-wrap break-all max-h-32">
+                      {vuln.evidence}
+                    </pre>
+                  </div>
+                </div>
+              )}
+              {vuln.false_positive_likelihood && (
+                <div className="flex items-start gap-2.5">
+                  <Info className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+                      Khả năng sai (FP)
+                    </p>
+                    <p className="text-sm">{vuln.false_positive_likelihood}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2 pt-1 border-t border-border/50">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs h-7"
+              disabled={fpPending}
+              onClick={onFpToggle}
+            >
+              {vuln.is_false_positive ? "Bỏ đánh dấu" : "Đánh dấu không hợp lệ"}
+            </Button>
+            {vuln.cwe_id && (
+              <span className="text-xs text-muted-foreground font-mono ml-auto">{vuln.cwe_id}</span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const Vulnerabilities = () => {
   const { t } = useLanguage();
@@ -65,181 +279,75 @@ const Vulnerabilities = () => {
 
   return (
     <DashboardLayout>
-      <div className="mb-6">
+      <div className="mb-5">
         <h1 className="text-2xl font-bold tracking-tight">{t("vulns.title")}</h1>
         <p className="text-sm text-muted-foreground mt-1">
           {isLoading ? "Đang tải..." : `${data?.total ?? 0} lỗ hổng được phát hiện`}
         </p>
       </div>
 
-      <div className="mb-4 flex items-center gap-3">
-        <div className="relative w-80">
+      {/* Filter Bar */}
+      <div className="mb-4 flex items-center gap-3 flex-wrap">
+        <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder={t("common.search")}
-            className="pl-9 h-9 bg-muted/50 border text-sm"
+            placeholder="Tìm theo endpoint..."
+            className="pl-9 h-9 w-72 bg-muted/40 border text-sm"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div className="flex gap-1.5">
-          {["", "critical", "high", "medium", "low"].map((sev) => (
-            <Button
-              key={sev}
-              variant={severityFilter === sev ? "default" : "outline"}
-              size="sm"
-              className="text-xs h-8"
-              onClick={() => setSeverityFilter(sev)}
+
+        {/* Severity Tabs */}
+        <div className="flex items-center gap-0.5 bg-muted/40 rounded-lg p-1 border border-border">
+          {SEVERITY_TABS.map((tab) => (
+            <button
+              key={tab.value}
+              onClick={() => setSeverityFilter(tab.value)}
+              className={cn(
+                "px-3 py-1 rounded-md text-xs font-medium transition-all",
+                severityFilter === tab.value
+                  ? "bg-card shadow-sm text-foreground border border-border"
+                  : "text-muted-foreground hover:text-foreground",
+                tab.value && severityFilter === tab.value ? tab.color : ""
+              )}
             >
-              {sev || "Tất cả"}
-            </Button>
+              {tab.label}
+            </button>
           ))}
         </div>
       </div>
 
-      <div className="bg-card rounded-lg border border-border overflow-hidden animate-fade-in">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-muted/30">
-              <th className="w-8 px-2 py-3"></th>
-              <th className="text-left px-4 py-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider">ID</th>
-              <th className="text-left px-4 py-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider">Vulnerability</th>
-              <th className="text-left px-4 py-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider">Severity</th>
-              <th className="text-left px-4 py-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider">Tham số</th>
-              <th className="text-left px-4 py-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider">Endpoint</th>
-              <th className="text-left px-4 py-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i} className="border-b border-border">
-                  {Array.from({ length: 7 }).map((_, j) => (
-                    <td key={j} className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
-                  ))}
-                </tr>
-              ))
-            ) : vulnerabilities.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
-                  Không tìm thấy lỗ hổng nào
-                </td>
-              </tr>
-            ) : (
-              vulnerabilities.map((vuln) => (
-                <>
-                  <tr
-                    key={vuln.id}
-                    onClick={() => setExpanded(expanded === vuln.id ? null : vuln.id)}
-                    className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors cursor-pointer"
-                  >
-                    <td className="px-2 py-3 text-center">
-                      {expanded === vuln.id ? (
-                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs font-medium">{vuln.id.slice(0, 12)}</td>
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-sm">
-                        {VULN_DISPLAY_NAMES[vuln.vulnerability_type] ?? vuln.vulnerability_type}
-                      </p>
-                      {(vuln.owasp_category || VULN_DISPLAY_NAMES[vuln.vulnerability_type]) && (
-                        <div className="text-xs text-muted-foreground font-mono mt-0.5 flex items-center gap-1.5 flex-wrap">
-                          {vuln.owasp_category && <span>{vuln.cwe_id} • {vuln.owasp_category}</span>}
-                          {VULN_DISPLAY_NAMES[vuln.vulnerability_type] && (
-                            <span className="text-[10px] bg-muted/60 border border-border rounded px-1.5 py-0.5 text-muted-foreground font-mono">
-                              {vuln.vulnerability_type}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant="outline" className={cn("text-[10px] font-bold uppercase", severityStyles[vuln.severity?.toLowerCase()] ?? "")}>
-                        {vuln.severity}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3">
-                      {(vuln as Vulnerability & { parameter?: string }).parameter ? (
-                        <span className="font-mono text-xs bg-muted/50 px-1.5 py-0.5 rounded border border-border">
-                          {(vuln as Vulnerability & { parameter?: string }).parameter}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground text-xs">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs max-w-[200px] truncate">{vuln.endpoint}</td>
-                    <td className="px-4 py-3">
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "text-[10px]",
-                          vuln.is_false_positive
-                            ? statusStyles.false_positive
-                            : statusStyles[vuln.status ?? "open"] ?? statusStyles.open
-                        )}
-                      >
-                        {vuln.is_false_positive ? "Không hợp lệ" : vuln.status ?? "open"}
-                      </Badge>
-                    </td>
-                  </tr>
-                  {expanded === vuln.id && (
-                    <tr key={`${vuln.id}-detail`} className="border-b border-border bg-muted/10">
-                      <td colSpan={7} className="px-6 py-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in">
-                          <div className="space-y-3">
-                            {vuln.explanation && (
-                              <div className="flex items-start gap-2">
-                                <Shield className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                                <div>
-                                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Giải thích</p>
-                                  <p className="text-sm mt-1">{vuln.explanation}</p>
-                                </div>
-                              </div>
-                            )}
-                            {vuln.poc && (
-                              <div className="flex items-start gap-2">
-                                <FileCode className="h-4 w-4 text-warning mt-0.5 shrink-0" />
-                                <div>
-                                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t("vulns.poc")}</p>
-                                  <p className="text-sm mt-1 font-mono bg-muted/50 rounded px-2 py-1 text-xs">{vuln.poc}</p>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          <div className="space-y-3">
-                            {vuln.remediation && (
-                              <div className="flex items-start gap-2">
-                                <Wrench className="h-4 w-4 text-success mt-0.5 shrink-0" />
-                                <div>
-                                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t("vulns.fix")}</p>
-                                  <p className="text-sm mt-1">{vuln.remediation}</p>
-                                </div>
-                              </div>
-                            )}
-                            <div className="flex gap-2 mt-3">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-xs"
-                                disabled={fpMutation.isPending}
-                                onClick={() => fpMutation.mutate({ id: vuln.id, fp: !vuln.is_false_positive })}
-                              >
-                                {vuln.is_false_positive ? "Bỏ đánh dấu" : "Đánh dấu không hợp lệ"}
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </>
-              ))
-            )}
-          </tbody>
-        </table>
+      {/* Cards */}
+      <div className="space-y-2">
+        {isLoading ? (
+          Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="bg-card rounded-lg border border-border border-l-4 border-l-muted px-4 py-3.5">
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-2 w-2 rounded-full" />
+                <Skeleton className="h-4 w-48" />
+                <Skeleton className="h-4 w-16 ml-2" />
+              </div>
+              <Skeleton className="h-3 w-64 mt-2 ml-5" />
+            </div>
+          ))
+        ) : vulnerabilities.length === 0 ? (
+          <div className="bg-card rounded-lg border border-border py-16 text-center">
+            <ShieldAlert className="h-8 w-8 text-muted-foreground/40 mx-auto mb-3" />
+            <p className="text-muted-foreground text-sm">Không tìm thấy lỗ hổng nào</p>
+          </div>
+        ) : (
+          vulnerabilities.map((vuln) => (
+            <VulnCard
+              key={vuln.id}
+              vuln={vuln}
+              expanded={expanded === vuln.id}
+              onToggle={() => setExpanded(expanded === vuln.id ? null : vuln.id)}
+              onFpToggle={() => fpMutation.mutate({ id: vuln.id, fp: !vuln.is_false_positive })}
+              fpPending={fpMutation.isPending}
+            />
+          ))
+        )}
       </div>
     </DashboardLayout>
   );

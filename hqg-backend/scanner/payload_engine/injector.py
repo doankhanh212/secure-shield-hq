@@ -37,6 +37,7 @@ async def _execute_request(
                 response_time=round(elapsed, 4),
                 response_body=body,
                 response_length=len(response.content),
+                parameter=request.parameter,
             )
         except Exception as exc:
             elapsed = time.perf_counter() - start
@@ -47,6 +48,7 @@ async def _execute_request(
                 response_code=None,
                 response_time=round(elapsed, 4),
                 error=str(exc),
+                parameter=request.parameter,
             )
 
 

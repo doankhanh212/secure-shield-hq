@@ -76,6 +76,18 @@ export default {
           ring: "hsl(var(--sidebar-ring))",
           muted: "hsl(var(--sidebar-muted))",
         },
+        brand: {
+          cyan: "#06b6d4",
+          blue: "#3b82f6",
+          indigo: "#6366f1",
+        },
+        severity: {
+          critical: "#ef4444",
+          high: "#f97316",
+          medium: "#eab308",
+          low: "#22c55e",
+          info: "#3b82f6",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

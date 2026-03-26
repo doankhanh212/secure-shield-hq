@@ -125,7 +125,8 @@ def analyze_response(
             )
 
     # 4. Command injection — shell output artifacts
-    if vtype == "cmdi":
+    # Skip 404 responses: many error pages contain shell-like text (false positive)
+    if vtype == "cmdi" and response_code != 404:
         m = match_cmdi_patterns(response_body)
         if m:
             findings.append(

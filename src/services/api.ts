@@ -59,6 +59,16 @@ export interface Vulnerability {
   poc?: string;
   ai_confidence?: number;
   remediation_note?: string;
+  // Additional fields returned by the backend
+  evidence?: string;
+  impact?: string;
+  fix_recommendation?: string;
+  confidence_label?: string;
+  false_positive_likelihood?: string;
+  payload?: string;
+  parameter?: string;
+  cvss_score?: number;
+  finding_id?: string;
 }
 
 export interface VulnerabilityResponse {

@@ -7,6 +7,7 @@ Public API:
 """
 from __future__ import annotations
 
+import hashlib
 import html as _html
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -22,6 +23,12 @@ def _safe(text) -> str:
         return _html.escape(str(text), quote=True) if text else ""
     except Exception:
         return ""
+
+
+def _short_id(v: dict) -> str:
+    """Stable 8-char ID derived from endpoint+vuln_type (fallback when finding_id absent)."""
+    key = f"{v.get('vulnerability_type', '')}{v.get('endpoint', '')}"
+    return hashlib.sha1(key.encode()).hexdigest()[:8]
 
 
 # ---------------------------------------------------------------------------
@@ -405,7 +412,7 @@ def _render_sidebar(vulns: list[dict]) -> str:
         seen_types: set[str] = set()
         for v in group[:8]:  # cap TOC entries per severity
             vt = str(v.get("vulnerability_type", ""))
-            fid = str(v.get("finding_id", ""))[:8]
+            fid = str(v.get("finding_id", ""))[:8] or _short_id(v)
             name = str(v.get("vulnerability_type", "Unknown")).replace("_", " ").title()
             anchor = f"f-{fid}"
             if vt not in seen_types:
@@ -460,10 +467,11 @@ def _render_hero(scan_result: dict, duration: str) -> str:
 
 def _render_score_grid(risk: dict) -> str:
     overall  = float(risk.get("overall_score", 0.0))
-    critical = int(risk.get("critical_count", 0))
-    high     = int(risk.get("high_count", 0))
-    medium   = int(risk.get("medium_count", 0))
-    low      = int(risk.get("low_count", 0))
+    # Support both "critical_count" (legacy) and "critical" (canonical) key names
+    critical = int(risk.get("critical_count") or risk.get("critical", 0))
+    high     = int(risk.get("high_count")     or risk.get("high",     0))
+    medium   = int(risk.get("medium_count")   or risk.get("medium",   0))
+    low      = int(risk.get("low_count")      or risk.get("low",      0))
     o_color  = _score_color(overall)
 
     def _card(val: str, label: str, color: str, extra_border: str = "") -> str:
@@ -489,7 +497,7 @@ def _render_score_grid(risk: dict) -> str:
 
 def _render_single_finding(v: dict, detail_id: str, is_open: bool) -> str:
     sev        = str(v.get("severity", "Low"))
-    fid        = str(v.get("finding_id", ""))[:8]
+    fid        = str(v.get("finding_id", ""))[:8] or _short_id(v)
     cwe        = _safe(v.get("cwe_id", ""))
     owasp      = _safe(v.get("owasp_category", ""))
     cvss       = float(v.get("cvss_score", 0.0))
@@ -545,7 +553,7 @@ def _render_single_finding(v: dict, detail_id: str, is_open: bool) -> str:
         f'<div class="field-text">{impact}</div>'
         # Evidence
         '<div class="field-label">Evidence</div>'
-        f'<div class="code-block">{_safe(evidence) if evidence.strip() else "(không có evidence)"}</div>'
+        f'<div class="code-block">{_safe(evidence).replace(chr(10), "<br>") if evidence.strip() else "(không có evidence)"}</div>'
         # Payload
         '<div class="field-label">Payload</div>'
         f'<div class="field-text"><code class="code-inline">{payload if payload else "—"}</code></div>'
@@ -602,7 +610,7 @@ def _render_findings_section(vulns: list[dict]) -> str:
 
         if len(group_vulns) >= 2:
             # Grouped block: same vuln_type + parameter, multiple endpoints
-            fid       = str(primary.get("finding_id", ""))[:8]
+            fid       = str(primary.get("finding_id", ""))[:8] or _short_id(primary)
             cwe       = _safe(primary.get("cwe_id", ""))
             owasp     = _safe(primary.get("owasp_category", ""))
             cvss      = float(primary.get("cvss_score", 0.0))
@@ -790,10 +798,18 @@ def _render_roadmap_section(vulns: list[dict]) -> str:
         vt     = str(v.get("vulnerability_type", ""))
         cvss   = float(v.get("cvss_score", 0.0))
         sev    = str(v.get("severity", ""))
-        fid    = str(v.get("finding_id", ""))[:8]
+        fid    = str(v.get("finding_id", ""))[:8] or _short_id(v)
         name   = vt.replace("_", " ").title()
         fixes  = v.get("fix_recommendation") or []
-        action = _safe(fixes[0][:100]) if fixes else "Xem khuyến nghị bảo mật"
+        if fixes:
+            _fix_text = str(fixes[0])
+            if len(_fix_text) > 100:
+                _truncated = _fix_text[:100].rsplit(" ", 1)[0] + "…"
+            else:
+                _truncated = _fix_text
+            action = _safe(_truncated)
+        else:
+            action = "Xem khuyến nghị bảo mật"
         effort = _safe(_EFFORT_MAP.get(vt, "2–4 giờ"))
         p_cls, p_lbl = _priority_label(cvss)
 

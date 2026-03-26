@@ -155,6 +155,22 @@ def _build_scan_result_dict(
     }
 
     risk = report.risk_overview.to_dict()
+    # Compute overall_score: 100 minus severity-weighted penalty (floor 0)
+    _penalty = (
+        risk["critical"] * 25
+        + risk["high"]     * 15
+        + risk["medium"]   *  8
+        + risk["low"]      *  3
+    )
+    risk["overall_score"] = max(0.0, float(100 - _penalty))
+
+    # Count unique endpoints with findings for the asset summary
+    _unique_eps = len({
+        str(v.get("endpoint", ""))
+        for v in analyzed_vulnerabilities
+        if v.get("endpoint")
+    })
+    asset_summary["total_endpoints"] = _unique_eps
 
     return {
         "scan_id":        scan_id,

@@ -107,6 +107,7 @@ def build_injection_requests(
                         json_body=None,
                         form_data=None,
                         headers=headers,
+                        parameter=param_name,
                     )
                 )
 
@@ -167,6 +168,7 @@ def build_form_injection_requests(
                             json_body=None,
                             form_data=injected_data,
                             headers=dict(DEFAULT_HEADERS),
+                            parameter=target_field,
                         )
                     )
                 else:
@@ -185,6 +187,7 @@ def build_form_injection_requests(
                             json_body=None,
                             form_data=None,
                             headers=dict(DEFAULT_HEADERS),
+                            parameter=target_field,
                         )
                     )
 

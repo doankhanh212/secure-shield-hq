@@ -134,6 +134,25 @@ async def patch_vulnerability(vuln_id: str, body: VulnPatch) -> dict[str, object
         findings[idx] = vuln
         store_findings(scan_id, findings)
 
+        # If false positive status changed, refresh domain vuln counts
+        if "is_false_positive" in updates:
+            try:
+                from backend.api.routes.assets import register_domain_from_scan
+                from scanner.scan_manager.scan_service import get_discovery
+
+                job = get_scan(scan_id)
+                if job:
+                    discovery = get_discovery(scan_id)
+                    register_domain_from_scan(
+                        target=job.target,
+                        scan_id=scan_id,
+                        scan_mode=job.mode,
+                        discovery=discovery,
+                        findings=findings,
+                    )
+            except Exception:
+                pass  # Domain sync failure is non-fatal
+
         vuln["id"] = vuln_id
         vuln["scan_id"] = scan_id
         return vuln

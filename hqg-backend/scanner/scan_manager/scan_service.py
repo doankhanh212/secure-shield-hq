@@ -110,6 +110,28 @@ def get_discovery(scan_id: str) -> dict[str, object]:
     return json.loads(raw) if raw else {}
 
 
+def store_attack_surface(scan_id: str, data: dict[str, object]) -> None:
+    r = _redis_client()
+    r.set(f"scan:{scan_id}:attack_surface", json.dumps(data), ex=86400 * 7)
+
+
+def get_attack_surface(scan_id: str) -> dict[str, object]:
+    r = _redis_client()
+    raw = r.get(f"scan:{scan_id}:attack_surface")
+    return json.loads(raw) if raw else {}
+
+
+def store_attack_paths(scan_id: str, data: list[dict[str, object]]) -> None:
+    r = _redis_client()
+    r.set(f"scan:{scan_id}:attack_paths", json.dumps(data), ex=86400 * 7)
+
+
+def get_attack_paths(scan_id: str) -> list[dict[str, object]]:
+    r = _redis_client()
+    raw = r.get(f"scan:{scan_id}:attack_paths")
+    return json.loads(raw) if raw else []
+
+
 def _persist(job: ScanJob) -> None:
     r = _redis_client()
     data = {

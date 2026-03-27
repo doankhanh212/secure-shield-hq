@@ -64,12 +64,10 @@ const severityPillStyles: Record<string, string> = {
   medium: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
 };
 
-// Quick mode only gets HTML; all others get all available formats
-function getFormatsForMode(mode: string, availableFormats: string[]): string[] {
-  if (mode === "quick") {
-    return availableFormats.includes("html") ? ["html"] : [];
-  }
-  return availableFormats.length > 0 ? availableFormats : ["pdf", "json", "csv", "html"];
+// Quick mode only generates HTML; standard/deep/full expose all four formats on demand.
+function getFormatsForMode(mode: string): string[] {
+  if (mode === "quick") return ["html"];
+  return ["html", "pdf", "json", "csv"];
 }
 
 const Reports = () => {
@@ -197,7 +195,7 @@ const Reports = () => {
             const report = reportsMap?.[scan.scan_id];
             const isReady = scan.status === "completed" && report;
             const isGenerating = !isReady;
-            const formats = getFormatsForMode(scan.mode, report?.available_formats ?? []);
+            const formats = getFormatsForMode(scan.mode);
 
             const severitySummary = extractSeveritySummary(report);
             const highest = getHighestSeverity(severitySummary);

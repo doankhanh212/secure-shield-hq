@@ -138,7 +138,7 @@ async def crawl_target_async(target: str, max_depth: int = 2) -> CrawlOutput:
         graphql_urls=graphql_urls,
     )
 
-    async with httpx.AsyncClient(follow_redirects=True, timeout=timeout, verify=False, limits=limits) as client:
+    async with httpx.AsyncClient(follow_redirects=True, max_redirects=5, timeout=timeout, verify=False, limits=limits) as client:
         for suffix in ("/robots.txt", "/sitemap.xml"):
             seed_url = normalize_url(base + suffix)
             if seed_url and is_in_scope(seed_url, target_domain):

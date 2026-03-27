@@ -8,11 +8,21 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import httpx
 
+from scanner.detection_engine.error_patterns import CMDI_SKIP_RESPONSE_CODES
 from scanner.template_engine.matchers import evaluate_matchers
 from scanner.template_engine.models import (
     ScanTemplate,
     TemplateMatch,
 )
+
+# Injection-type templates: findings should be skipped on error pages (404/403/405)
+_INJECTION_VULN_TYPES = {"cmdi", "sqli", "xss", "lfi", "ssrf"}
+
+# Negative keywords for info_disclosure — CSRF tokens are NOT info disclosure
+_INFO_DISCLOSURE_SKIP_KEYWORDS = [
+    "csrf", "token", "_token", "authenticity_token",
+    "__requestverificationtoken", "x-csrf-token", "user_token",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +128,27 @@ async def _execute_template_request(
             )
             return None
 
+        # ── FIX 1: Skip injection-type findings on error pages ──────────
+        if (
+            template.vulnerability_type in _INJECTION_VULN_TYPES
+            and resp_code in CMDI_SKIP_RESPONSE_CODES
+        ):
+            logger.debug(
+                "Template %s SKIPPED on %s: injection finding on %d page",
+                template.id, url, resp_code,
+            )
+            return None
+
+        # ── FIX 2: Skip info_disclosure findings that are just CSRF tokens ─
+        if template.vulnerability_type == "info_disclosure" and evidence:
+            ev_lower = evidence.lower()
+            if any(kw in ev_lower for kw in _INFO_DISCLOSURE_SKIP_KEYWORDS):
+                logger.debug(
+                    "Template %s SKIPPED on %s: info_disclosure matched CSRF/token pattern",
+                    template.id, url,
+                )
+                return None
+
         return TemplateMatch(
             endpoint=endpoint,
             payload=payload,
@@ -190,34 +221,6 @@ async def run_templates_async(
                     )
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    # Collect matches, de-duplicate by (endpoint, template_id)
-    match_dedup: dict[tuple[str, str], TemplateMatch] = {}
-    errors = 0
-    nones = 0
-    for result in results:
-        if isinstance(result, TemplateMatch):
-            dedup_key = (result.endpoint, result.template_id)
-            if dedup_key not in match_dedup:
-                match_dedup[dedup_key] = result
-        elif isinstance(result, Exception):
-            errors += 1
-        else:
-            nones += 1
-
-    if errors:
-        logger.warning("Template engine: %d tasks raised exceptions", errors)
-    logger.info(
-        "Template engine: %d tasks total, %d no-match, %d errors",
-        len(results), nones, errors,
-    )
-
-    matches = list(match_dedup.values())
-    logger.info(
-        "Template engine: %d templates × %d endpoints → %d findings",
-        len(templates), len(endpoints), len(matches),
-    )
-    return matches
 
     # Collect matches, de-duplicate by (endpoint, template_id)
     match_dedup: dict[tuple[str, str], TemplateMatch] = {}

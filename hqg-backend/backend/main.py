@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.routes import assets, auth, dashboard, scans, vulnerabilities
-from backend.api.routes import reports, ws
+from backend.api.routes import reports, settings as settings_routes, ws
 from backend.config import get_settings
 from backend.core.logging import configure_logging
 from backend.core.redis import redis_client
@@ -59,6 +59,7 @@ def create_app() -> FastAPI:
     app.include_router(assets.router, prefix=settings.api_v1_prefix)
     app.include_router(vulnerabilities.router, prefix=settings.api_v1_prefix)
     app.include_router(reports.router, prefix=settings.api_v1_prefix)
+    app.include_router(settings_routes.router, prefix=settings.api_v1_prefix)
     app.include_router(ws.router, prefix=settings.api_v1_prefix)
 
     @app.get("/health", tags=["system"])

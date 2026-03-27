@@ -9,6 +9,8 @@ from scanner.scan_manager.pipeline import ScanCancelledError, run_pipeline
 from scanner.scan_manager.scan_modes import get_mode
 from scanner.scan_manager.scan_service import (
     get_scan,
+    store_attack_paths,
+    store_attack_surface,
     store_discovery,
     store_findings,
     update_scan,
@@ -66,6 +68,24 @@ def start_scan(self, scan_id: str, target: str, mode: str = "standard") -> dict[
         update_scan(scan_id, status=ScanStatus.COMPLETED, progress=1.0)
         store_findings(scan_id, result.get("findings", []))
         store_discovery(scan_id, result.get("discovery", {}))
+        if result.get("attack_surface"):
+            store_attack_surface(scan_id, result["attack_surface"])
+        if result.get("attack_paths"):
+            store_attack_paths(scan_id, result["attack_paths"])
+
+        # Auto-register domain
+        try:
+            from backend.api.routes.assets import register_domain_from_scan
+            register_domain_from_scan(
+                target=target,
+                scan_id=scan_id,
+                scan_mode=mode,
+                discovery=result.get("discovery"),
+                findings=result.get("findings"),
+            )
+        except Exception as _e:
+            logger.warning("scan=%s domain registration failed: %s", scan_id, _e)
+
         logger.info("scan=%s completed findings=%d", scan_id, result.get("total_findings", 0))
         return result
 

@@ -275,6 +275,39 @@ export async function getDashboardTopRisks(): Promise<TopRisksData> {
   return request(`${API_BASE}/dashboard/top-risks`);
 }
 
+// ── Settings ──────────────────────────────────────────────────────────────
+
+export interface PlatformSettings {
+  platform_name: string;
+  language: string;
+  nvd_api_key_configured: boolean;
+  daily_scans: boolean;
+  ai_analysis: boolean;
+  distributed_scanning: boolean;
+  email_notifications: boolean;
+  scan_workers: number;
+}
+
+export function getSettings(): Promise<PlatformSettings> {
+  return request<PlatformSettings>(`${API_BASE}/settings`);
+}
+
+export function updateSettings(data: Record<string, unknown>): Promise<{ status: string; nvd_api_key_configured: boolean }> {
+  return request(`${API_BASE}/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function verifyNvdKey(apiKey: string): Promise<{ valid: boolean; message: string }> {
+  return request(`${API_BASE}/settings/verify-nvd-key`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key: apiKey }),
+  });
+}
+
 // ── WebSocket ──────────────────────────────────────────────────────────────
 
 export function createScanWebSocket(

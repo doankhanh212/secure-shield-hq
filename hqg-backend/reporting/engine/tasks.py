@@ -183,6 +183,8 @@ def _build_scan_result_dict(
         "asset_summary":  asset_summary,
         "analyzed_vulnerabilities": analyzed_vulnerabilities,
         "cve_intelligence": cve_records,
+        "attack_surface": meta.get("attack_surface") or {},
+        "attack_paths": meta.get("attack_paths") or [],
     }
 
 

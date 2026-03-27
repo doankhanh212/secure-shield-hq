@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Plus, Radar, Play, Trash2, Check, Clock, CheckCircle2, XCircle, Loader2, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 import { ScanProgress } from "@/components/scans/ScanProgress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -17,26 +18,32 @@ const scanModes = [
   {
     key: "scans.quickScan",
     mode: "quick",
-    desc: "Port scan + basic vuln check",
-    duration: "~5 phút",
+    icon: "⚡",
+    desc: "Kiểm tra cấu hình bảo mật & header",
+    duration: "~2–5 phút",
     color: "cyan",
     disabled: false,
+    badge: null,
   },
   {
     key: "scans.standardScan",
     mode: "standard",
-    desc: "OWASP Top 10 + CVE mapping",
-    duration: "~30 phút",
+    icon: "🔍",
+    desc: "OWASP Top 10 + CVE mapping + AI phân tích",
+    duration: "~15–40 phút",
     color: "blue",
     disabled: false,
+    badge: "Khuyên dùng",
   },
   {
     key: "scans.deepScan",
     mode: "deep",
-    desc: "Full crawl + payload injection",
-    duration: "~2 giờ",
+    icon: "🔥",
+    desc: "Attack Surface Graph + AI threat reasoning",
+    duration: "~1–3 giờ",
     color: "violet",
-    disabled: true,
+    disabled: false,
+    badge: "Nâng cao",
   },
 ];
 
@@ -114,6 +121,7 @@ function StatusBadge({ status }: { status: string }) {
 
 const SecurityScans = () => {
   const { t } = useLanguage();
+  const { toast } = useToast();
   const queryClient = useQueryClient();
   const [selectedMode, setSelectedMode] = useState<number | null>(null);
   const [target, setTarget] = useState("");
@@ -128,10 +136,17 @@ const SecurityScans = () => {
   const startMutation = useMutation({
     mutationFn: () => createScan(target, scanModes[selectedMode!].mode),
     onSuccess: () => {
+      const mode = scanModes[selectedMode!].mode;
       queryClient.invalidateQueries({ queryKey: ["scans"] });
       setDialogOpen(false);
       setTarget("");
       setSelectedMode(null);
+      if (mode === "deep") {
+        toast({
+          title: "Phân Tích Sâu đã bắt đầu",
+          description: "Chế độ này sẽ tạo Attack Surface Graph và phân tích kịch bản tấn công. Thời gian ước tính: 1–3 giờ.",
+        });
+      }
     },
   });
 
@@ -173,7 +188,7 @@ const SecurityScans = () => {
               <div>
                 <Label className="text-sm font-medium mb-1.5 block">Target</Label>
                 <Input
-                  placeholder="example.com hoặc 192.168.1.0/24"
+                  placeholder="example.com hoặc https://example.com"
                   className="font-mono text-sm"
                   value={target}
                   onChange={(e) => setTarget(e.target.value)}
@@ -198,7 +213,18 @@ const SecurityScans = () => {
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1">
-                          <p className="text-sm font-semibold">{t(mode.key)}</p>
+                          <p className="text-sm font-semibold flex items-center gap-1.5">
+                            <span>{mode.icon}</span>
+                            {t(mode.key)}
+                            {mode.badge && !mode.disabled && (
+                              <span className={cn(
+                                "text-[10px] font-semibold text-white rounded-full px-2 py-0.5 leading-none",
+                                mode.color === "violet" ? "bg-violet-500" : "bg-cyan-500"
+                              )}>
+                                {mode.badge}
+                              </span>
+                            )}
+                          </p>
                           <p className="text-xs text-muted-foreground mt-0.5">{mode.desc}</p>
                           <p className="text-xs font-mono text-muted-foreground mt-1">{mode.duration}</p>
                         </div>

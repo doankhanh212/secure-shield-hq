@@ -9,6 +9,14 @@ _STATIC_EXTENSIONS = frozenset({
     ".css", ".woff", ".woff2", ".ttf", ".eot", ".otf",
     ".mp3", ".mp4", ".avi", ".webm", ".webp",
     ".pdf", ".zip", ".tar", ".gz",
+    # Script / font extensions that should not be crawled as HTML pages
+    ".js", ".ts", ".map", ".ttf", ".woff",
+})
+
+# Subdomain prefixes that suggest CDN / static-asset hosts; skip crawling them
+_CDN_PREFIXES = frozenset({
+    "cdn.", "static.", "assets.", "media.", "images.", "img.",
+    "fonts.", "js.", "css.", "files.", "downloads.",
 })
 
 _API_PATTERNS = re.compile(
@@ -29,10 +37,22 @@ def extract_domain(target: str) -> str:
     return target.strip().lower().replace("http://", "").replace("https://", "").split("/")[0]
 
 
+def is_cdn_subdomain(hostname: str) -> bool:
+    """Return True if *hostname* looks like a CDN or static-asset subdomain."""
+    h = hostname.lower()
+    return any(h.startswith(prefix) for prefix in _CDN_PREFIXES)
+
+
 def is_in_scope(url: str, target_domain: str) -> bool:
     hostname = (urlparse(url).hostname or "").lower()
     base = target_domain.lower()
-    return hostname == base or hostname.endswith(f".{base}")
+    in_domain = hostname == base or hostname.endswith(f".{base}")
+    if not in_domain:
+        return False
+    # Skip CDN/static subdomains even when they share the same parent domain
+    if hostname != base and is_cdn_subdomain(hostname):
+        return False
+    return True
 
 
 def is_static_resource(url: str) -> bool:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from scanner.scan_manager.models import ScanStage, ScanStatus
 from scanner.scan_manager.scan_modes import ScanModeConfig
@@ -13,6 +14,38 @@ logger = logging.getLogger(__name__)
 
 class ScanCancelledError(Exception):
     """Raised when a scan is cancelled by the user while pipeline is running."""
+
+
+class CircuitBreaker:
+    """Simple circuit breaker to halt a scan stage when too many errors accumulate."""
+
+    def __init__(self, threshold: int = 50, reset_after: float = 60.0) -> None:
+        self.threshold = threshold
+        self.reset_after = reset_after
+        self.error_count = 0
+        self.tripped = False
+        self._tripped_at: float = 0.0
+
+    def record_error(self, scan_id: str = "") -> None:
+        self.error_count += 1
+        if not self.tripped and self.error_count >= self.threshold:
+            self.tripped = True
+            self._tripped_at = time.monotonic()
+            logger.error(
+                "scan=%s CircuitBreaker tripped after %d errors — aborting payload injection",
+                scan_id, self.error_count,
+            )
+
+    def is_open(self) -> bool:
+        """Return True when the breaker is tripped and the reset window has not elapsed."""
+        if not self.tripped:
+            return False
+        if time.monotonic() - self._tripped_at > self.reset_after:
+            # Auto-reset
+            self.tripped = False
+            self.error_count = 0
+            return False
+        return True
 
 
 def _set_stage(scan_id: str, stage: ScanStage, progress: float) -> None:
@@ -211,19 +244,42 @@ async def run_pipeline(
 
     injection_results: list[dict[str, object]] = []
 
-    _payload_enabled = _profile["payload_engine"]["enabled"]
+    _payload_config = _profile["payload_engine"]
+    _payload_enabled = _payload_config["enabled"]
     if config.has_stage("payload_injection") and _payload_enabled and endpoints:
-        logger.info("scan=%s stage=payload_injection enabled", scan_id)
+        logger.info(
+            "scan=%s stage=payload_injection enabled concurrency=%d max_payloads_per_param=%s timeout=%.1fs generic_fallback=%s",
+            scan_id,
+            config.payload_concurrency,
+            _payload_config.get("max_payloads_per_param"),
+            float(_payload_config.get("timeout_seconds", 15.0)),
+            _payload_config.get("allow_generic_fallback", True),
+        )
         from scanner.payload_engine.tasks import _inject_payloads_async
 
+        _breaker = CircuitBreaker(threshold=50)
         raw = await _inject_payloads_async(
             endpoints=endpoints,
-            concurrency=config.max_concurrency,
+            concurrency=config.payload_concurrency,
             inject_headers=config.inject_headers,
             payload_mutation=config.payload_mutation,
             forms=forms,
             endpoint_info=endpoint_info,
+            max_payloads_per_param=_payload_config.get("max_payloads_per_param"),
+            timeout_seconds=float(_payload_config.get("timeout_seconds", 15.0)),
+            allow_generic_fallback=bool(_payload_config.get("allow_generic_fallback", True)),
+            scan_mode=config.name,
         )
+        # Count error results and trip the breaker if needed (for logging / monitoring).
+        for _r in raw:
+            _rc = _r.get("response_code")
+            if _rc in (None, 403, 405, 429, 500, 502, 503, 508) or _r.get("error"):
+                _breaker.record_error(scan_id)
+        if _breaker.is_open():
+            logger.warning(
+                "scan=%s CircuitBreaker tripped: %d error responses out of %d total",
+                scan_id, _breaker.error_count, len(raw),
+            )
         injection_results = raw
     elif not _payload_enabled:
         logger.info("scan=%s stage=payload_injection disabled (mode=%s)", scan_id, config.name)
@@ -252,6 +308,11 @@ async def run_pipeline(
         detection_findings = [f.to_dict() for f in findings]
     else:
         logger.info("scan=%s stage=detection skipped (no injection results)", scan_id)
+
+    # Filter template findings through the same quality filters as detection findings
+    if template_findings:
+        from scanner.scan_manager._template_filter import filter_template_findings
+        template_findings = filter_template_findings(template_findings)
 
     # Merge template-engine findings with detection findings
     all_findings: list[dict[str, object]] = template_findings + detection_findings
@@ -484,6 +545,62 @@ async def run_pipeline(
         logger.info("scan=%s stage=cve_intelligence disabled (mode=%s)", scan_id, config.name)
 
     _ensure_not_cancelled(scan_id)
+
+    # ------------------------------------------------------------------ #
+    # Stage 7 – Attack Surface Graph (deep mode only)                     #
+    # ------------------------------------------------------------------ #
+    attack_surface_output: dict[str, object] = {}
+    attack_paths_output: list[dict[str, object]] = []
+
+    _as_enabled = _profile.get("attack_surface", {}).get("enabled", False)
+    if config.has_stage("attack_surface") and _as_enabled:
+        _set_stage(scan_id, ScanStage.ATTACK_SURFACE, 0.91)
+        logger.info("scan=%s stage=attack_surface enabled", scan_id)
+
+        from scanner.attack_surface.graph import build_attack_surface_graph
+
+        _scan_result_snapshot = {
+            "target": target,
+            "discovery": discovery_output,
+            "crawled_endpoints": endpoints,
+        }
+        _cve_records = cve_output.get("cve_records", []) if cve_output else []
+        _attack_graph = build_attack_surface_graph(
+            scan_result=_scan_result_snapshot,
+            analyzed_vulnerabilities=analyzed_findings,
+            cve_records=_cve_records,
+        )
+        attack_surface_output = _attack_graph.to_dict()
+        logger.info(
+            "scan=%s attack_surface: %d assets, %d endpoints, %d vulns, %d entry_points",
+            scan_id,
+            len(_attack_graph.assets),
+            len(_attack_graph.endpoints),
+            len(_attack_graph.vulnerabilities),
+            len(_attack_graph.get_entry_points()),
+        )
+
+        # ── Stage 8 – Attack Path Analysis (deep mode only) ──────────────
+        _ap_enabled = _profile.get("attack_path", {}).get("enabled", False)
+        if config.has_stage("attack_path") and _ap_enabled:
+            _set_stage(scan_id, ScanStage.ATTACK_PATH, 0.95)
+            logger.info("scan=%s stage=attack_path enabled", scan_id)
+
+            from scanner.attack_surface.attack_paths import analyze_attack_paths
+
+            _paths = analyze_attack_paths(
+                graph=_attack_graph,
+                analyzed_vulnerabilities=analyzed_findings,
+            )
+            attack_paths_output = [p.to_dict() for p in _paths]
+            logger.info(
+                "scan=%s attack_paths: %d scenarios identified",
+                scan_id, len(attack_paths_output),
+            )
+    else:
+        logger.info("scan=%s stage=attack_surface disabled (mode=%s)", scan_id, config.name)
+
+    _ensure_not_cancelled(scan_id)
     _set_stage(scan_id, ScanStage.DONE, 1.0)
 
     return {
@@ -499,4 +616,6 @@ async def run_pipeline(
         "cve_intelligence": cve_output,
         "security_checks": security_check_results,
         "quick_summary": quick_summary,
+        "attack_surface": attack_surface_output,
+        "attack_paths": attack_paths_output,
     }

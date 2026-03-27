@@ -9,7 +9,13 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
-from scanner.scan_manager.scan_service import get_discovery, get_findings, get_scan
+from scanner.scan_manager.scan_service import (
+    get_attack_paths,
+    get_attack_surface,
+    get_discovery,
+    get_findings,
+    get_scan,
+)
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -151,11 +157,15 @@ async def download_report(
 
     if not candidate.exists():
         discovery = await run_in_threadpool(get_discovery, scan_id)
+        attack_surface = await run_in_threadpool(get_attack_surface, scan_id)
+        attack_paths = await run_in_threadpool(get_attack_paths, scan_id)
         scan_meta: dict[str, object] = {
-            "target":     job.target,
-            "mode":       job.mode,
-            "started_at": job.created_at,   # Fix #6: use scan creation time for duration
-            "discovery":  discovery,         # Fix #5: supply asset discovery data
+            "target":          job.target,
+            "mode":            job.mode,
+            "started_at":      job.created_at,
+            "discovery":       discovery,
+            "attack_surface":  attack_surface,
+            "attack_paths":    attack_paths,
         }
         try:
             candidate = await run_in_threadpool(

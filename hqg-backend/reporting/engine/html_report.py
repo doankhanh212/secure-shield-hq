@@ -290,6 +290,60 @@ body{
 .p2{color:#ffb800;font-weight:700}
 .p3{color:#00ff9d}
 
+/* Attack Surface */
+.as-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:22px}
+.as-card{
+  background:#111d2e;border:1px solid #1e3352;border-radius:8px;padding:16px
+}
+.as-card-title{
+  font-size:10px;letter-spacing:2px;color:#4a6a90;
+  text-transform:uppercase;margin-bottom:10px
+}
+.as-ep-row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:6px 0;border-bottom:1px solid #1e335220;font-size:12px
+}
+.as-ep-url{color:#8aa8cc;font-family:'SF Mono',Consolas,monospace;word-break:break-all}
+.as-ep-score{color:#ff7b44;font-weight:700;flex-shrink:0;margin-left:8px}
+.as-entry-badge{
+  display:inline-block;font-size:10px;font-weight:700;
+  padding:2px 8px;border-radius:3px;letter-spacing:1px;
+  background:rgba(255,62,94,.12);color:#ff3e5e;border:1px solid rgba(255,62,94,.3)
+}
+
+/* Attack Paths */
+.ap-scenario{
+  background:#111d2e;border:1px solid #1e3352;border-radius:8px;
+  margin-bottom:16px;overflow:hidden
+}
+.ap-header{
+  display:flex;align-items:center;gap:10px;
+  padding:13px 16px;border-bottom:1px solid #1e3352
+}
+.ap-risk{
+  font-size:10px;font-weight:700;letter-spacing:1px;
+  padding:3px 9px;border-radius:3px;text-transform:uppercase
+}
+.ap-title{font-size:14px;font-weight:600;color:#e8f4ff;flex:1}
+.ap-body{padding:16px 18px}
+.ap-step{
+  display:flex;gap:12px;align-items:flex-start;
+  padding:8px 0;border-bottom:1px solid #1e335220
+}
+.ap-step:last-child{border-bottom:none}
+.ap-step-num{
+  background:#162338;border:1px solid #2a4a70;
+  color:#00d4ff;font-size:11px;font-weight:700;
+  width:24px;height:24px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0
+}
+.ap-step-detail{flex:1;font-size:13px;color:#8aa8cc}
+.ap-step-vuln{color:#e8f4ff;font-weight:600}
+.ap-step-finding{
+  font-size:11px;color:#4a6a90;
+  font-family:'SF Mono',Consolas,monospace
+}
+
 /* Footer */
 .footer{
   text-align:center;font-size:11px;color:#4a6a90;
@@ -432,6 +486,8 @@ def _render_sidebar(vulns: list[dict]) -> str:
         '<a class="toc-link toc-info" href="#overview">Dashboard</a>'
         '<a class="toc-link toc-info" href="#findings">Lỗ Hổng Bảo Mật</a>'
         '<a class="toc-link toc-info" href="#cve">CVE Intelligence</a>'
+        '<a class="toc-link toc-info" href="#attack-surface">Bề Mặt Tấn Công</a>'
+        '<a class="toc-link toc-info" href="#attack-paths">Kịch Bản Tấn Công</a>'
         '<a class="toc-link toc-info" href="#assets">Tài Sản</a>'
         '<a class="toc-link toc-info" href="#roadmap">Lộ Trình Khắc Phục</a>'
         + "".join(toc_findings) +
@@ -779,6 +835,143 @@ def _render_asset_section(asset_summary: dict) -> str:
     )
 
 
+def _render_attack_surface_section(attack_surface: dict) -> str:
+    if not attack_surface:
+        return ""
+
+    summary = attack_surface.get("summary", {})
+    total_assets = int(summary.get("total_assets", 0))
+    total_ep = int(summary.get("total_endpoints", 0))
+    total_params = int(summary.get("total_parameters", 0))
+    total_vulns = int(summary.get("total_vulnerabilities", 0))
+    riskiest = summary.get("riskiest_endpoints") or []
+    entry_points = summary.get("entry_points") or []
+
+    parts = [
+        '<a class="anchor" id="attack-surface"></a>',
+        '<div class="section">',
+        '<div class="section-title">Bản Đồ Bề Mặt Tấn Công</div>',
+        '<div class="metric-tiles">',
+        f'<div class="metric-tile"><div class="metric-tile-val">{total_assets}</div>'
+        '<div class="metric-tile-lbl">Tài Sản</div></div>',
+        f'<div class="metric-tile"><div class="metric-tile-val">{total_ep}</div>'
+        '<div class="metric-tile-lbl">Endpoints</div></div>',
+        f'<div class="metric-tile"><div class="metric-tile-val">{total_params}</div>'
+        '<div class="metric-tile-lbl">Tham Số</div></div>',
+        f'<div class="metric-tile"><div class="metric-tile-val">{total_vulns}</div>'
+        '<div class="metric-tile-lbl">Lỗ Hổng</div></div>',
+        '</div>',
+    ]
+
+    # Riskiest endpoints table
+    if riskiest:
+        parts.append(
+            '<div class="as-grid">'
+            '<div class="as-card">'
+            '<div class="as-card-title">Endpoints Rủi Ro Cao Nhất</div>'
+        )
+        for ep in riskiest[:10]:
+            url = _safe(ep.get("url", ""))
+            score = float(ep.get("risk_score", 0.0))
+            vuln_count = int(ep.get("vuln_count", 0))
+            parts.append(
+                f'<div class="as-ep-row">'
+                f'<span class="as-ep-url">{url}</span>'
+                f'<span class="as-ep-score">{score:.1f} ({vuln_count} vulns)</span>'
+                f'</div>'
+            )
+        parts.append('</div>')
+
+        # Entry points
+        parts.append(
+            '<div class="as-card">'
+            '<div class="as-card-title">Điểm Xâm Nhập</div>'
+        )
+        if entry_points:
+            for ep in entry_points[:10]:
+                ep_type = _safe(str(ep.get("type", "")).replace("_", " ").title())
+                ep_id = _safe(ep.get("id", ""))
+                parts.append(
+                    f'<div class="as-ep-row">'
+                    f'<span class="as-ep-url">{ep_type}</span>'
+                    f'<span class="as-entry-badge">{ep_id}</span>'
+                    f'</div>'
+                )
+        else:
+            parts.append(
+                '<div style="color:#4a6a90;font-size:12px;padding:8px 0">'
+                'Không phát hiện điểm xâm nhập trực tiếp</div>'
+            )
+        parts.append('</div></div>')
+
+    parts.append('</div>')
+    return "".join(parts)
+
+
+def _render_attack_paths_section(attack_paths: list[dict]) -> str:
+    if not attack_paths:
+        return ""
+
+    _risk_colors = {
+        "Critical": ("#ff3e5e", "rgba(255,62,94,.15)"),
+        "High": ("#ff7b44", "rgba(255,123,68,.15)"),
+        "Medium": ("#ffb800", "rgba(255,184,0,.15)"),
+        "Low": ("#00ff9d", "rgba(0,255,157,.12)"),
+    }
+
+    parts = [
+        '<a class="anchor" id="attack-paths"></a>',
+        '<div class="section">',
+        '<div class="section-title">Kịch Bản Tấn Công</div>',
+    ]
+
+    for path in attack_paths[:10]:
+        name = _safe(path.get("name", ""))
+        risk = str(path.get("likelihood", "Medium"))
+        impact = _safe(path.get("total_impact", ""))
+        steps = path.get("steps", [])
+        color, bg = _risk_colors.get(risk, ("#4a6a90", "rgba(74,106,144,.15)"))
+
+        parts.append(
+            f'<div class="ap-scenario">'
+            f'<div class="ap-header">'
+            f'<span class="ap-risk" style="color:{color};background:{bg};border:1px solid {color}40">{_safe(risk)}</span>'
+            f'<span class="ap-title">{name}</span>'
+            f'</div>'
+            f'<div class="ap-body">'
+        )
+
+        if impact:
+            parts.append(
+                f'<div style="font-size:12px;color:#8aa8cc;margin-bottom:12px;'
+                f'padding:8px 12px;background:#070b0f;border-radius:5px">'
+                f'<strong style="color:#e8f4ff">Tác động:</strong> {impact}</div>'
+            )
+
+        for i, step in enumerate(steps, 1):
+            action = _safe(step.get("action", ""))
+            vuln_type = _safe(str(step.get("vuln_type", "")).replace("_", " ").title())
+            finding_id = _safe(step.get("finding_id", ""))
+            endpoint = _safe(step.get("endpoint", ""))
+
+            parts.append(
+                f'<div class="ap-step">'
+                f'<div class="ap-step-num">{i}</div>'
+                f'<div class="ap-step-detail">'
+                f'<span class="ap-step-vuln">{vuln_type}</span> — {action}'
+            )
+            if finding_id:
+                parts.append(f' <span class="ap-step-finding">[{finding_id}]</span>')
+            if endpoint:
+                parts.append(f'<br><span style="font-size:11px;color:#4a6a90">{endpoint}</span>')
+            parts.append('</div></div>')
+
+        parts.append('</div></div>')
+
+    parts.append('</div>')
+    return "".join(parts)
+
+
 def _render_roadmap_section(vulns: list[dict]) -> str:
     if not vulns:
         return ""
@@ -853,6 +1046,8 @@ def _render(scan_result: dict) -> str:
     asset    = scan_result.get("asset_summary") or {}
     vulns    = scan_result.get("analyzed_vulnerabilities") or []
     cve_list = scan_result.get("cve_intelligence") or []
+    attack_surface = scan_result.get("attack_surface") or {}
+    attack_paths   = scan_result.get("attack_paths") or []
 
     generated_at = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
 
@@ -885,6 +1080,12 @@ def _render(scan_result: dict) -> str:
 
     # CVE Intelligence
     parts.append(_render_cve_section(cve_list))
+
+    # Attack Surface Map (deep mode)
+    parts.append(_render_attack_surface_section(attack_surface))
+
+    # Attack Path Scenarios (deep mode)
+    parts.append(_render_attack_paths_section(attack_paths))
 
     # Asset Summary
     parts.append(_render_asset_section(asset))

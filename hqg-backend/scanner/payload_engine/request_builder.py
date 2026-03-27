@@ -18,6 +18,30 @@ _HEADER_INJECTION_TARGETS = [
     "Referer",
 ]
 
+_LOW_VALUE_FALLBACK_PATHS = {
+    "/robots.txt",
+    "/sitemap.xml",
+    "/sitemap_index.xml",
+    "/favicon.ico",
+}
+
+_LOW_VALUE_FALLBACK_SUFFIXES = (
+    ".txt",
+    ".xml",
+    ".ico",
+    ".css",
+    ".js",
+    ".map",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".webp",
+    ".woff",
+    ".woff2",
+)
+
 
 def _normalize_target(endpoint: str) -> tuple[str, str]:
     parsed = urlparse(endpoint)
@@ -42,11 +66,18 @@ def _build_url_with_params(url: str, params: dict[str, str]) -> str:
     return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", query, ""))
 
 
+def _is_low_value_fallback_target(endpoint: str) -> bool:
+    parsed = urlparse(endpoint)
+    path = (parsed.path or "/").lower()
+    return path in _LOW_VALUE_FALLBACK_PATHS or path.endswith(_LOW_VALUE_FALLBACK_SUFFIXES)
+
+
 def build_injection_requests(
     endpoint: str,
     payload_sets: dict[str, list[str]],
     inject_headers: bool = False,
     known_params: list[str] | None = None,
+    allow_generic_fallback: bool = True,
 ) -> list[InjectionRequest]:
     """Build GET injection requests for *endpoint*.
 
@@ -76,6 +107,8 @@ def build_injection_requests(
     elif existing_params:
         injection_param_names = list(existing_params.keys())
     else:
+        if not allow_generic_fallback or _is_low_value_fallback_target(endpoint):
+            return []
         # No params at all — inject common probe param names
         injection_param_names = ["id", "q", "search", "cat", "page", "item", "name"]
         existing_params = {p: "1" for p in injection_param_names}
@@ -111,24 +144,28 @@ def build_injection_requests(
                     )
                 )
 
-                # Header injection variant
-                if inject_headers:
-                    for header_name in _HEADER_INJECTION_TARGETS:
-                        hdr = dict(DEFAULT_HEADERS)
-                        hdr[header_name] = payload
-                        requests.append(
-                            InjectionRequest(
-                                endpoint=endpoint,
-                                vulnerability_type=vulnerability_type,
-                                payload=payload,
-                                url=_build_url_with_params(base if not base.startswith("/") else f"http://localhost{base}", existing_params),
-                                method="GET",
-                                params=existing_params,
-                                json_body=None,
-                                form_data=None,
-                                headers=hdr,
-                            )
+            # Header injection variants are independent of query param choice,
+            # so generate them once per payload instead of once per payload x param.
+            if inject_headers:
+                header_target_url = base if not base.startswith("/") else f"http://localhost{base}"
+                header_target_url = _build_url_with_params(header_target_url, existing_params)
+                for header_name in _HEADER_INJECTION_TARGETS:
+                    hdr = dict(DEFAULT_HEADERS)
+                    hdr[header_name] = payload
+                    requests.append(
+                        InjectionRequest(
+                            endpoint=endpoint,
+                            vulnerability_type=vulnerability_type,
+                            payload=payload,
+                            url=header_target_url,
+                            method="GET",
+                            params=dict(existing_params),
+                            json_body=None,
+                            form_data=None,
+                            headers=hdr,
+                            parameter=header_name,
                         )
+                    )
 
     return requests
 

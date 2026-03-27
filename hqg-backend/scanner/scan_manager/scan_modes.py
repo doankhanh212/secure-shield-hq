@@ -9,6 +9,7 @@ class ScanModeConfig:
     stages: tuple[str, ...]
     max_depth: int
     max_concurrency: int
+    payload_concurrency: int
     inject_headers: bool
     payload_mutation: bool = False
     cve_intelligence: bool = False
@@ -22,6 +23,7 @@ QUICK_SCAN = ScanModeConfig(
     stages=("asset_discovery", "crawling", "template_scan", "payload_injection", "detection"),
     max_depth=2,
     max_concurrency=20,
+    payload_concurrency=32,
     inject_headers=False,
     payload_mutation=False,
     cve_intelligence=False,
@@ -32,6 +34,7 @@ STANDARD_SCAN = ScanModeConfig(
     stages=("asset_discovery", "crawling", "template_scan", "payload_injection", "detection", "ai_analysis", "cve_intelligence"),
     max_depth=3,
     max_concurrency=40,
+    payload_concurrency=64,
     inject_headers=False,
     payload_mutation=False,
     cve_intelligence=True,
@@ -39,9 +42,10 @@ STANDARD_SCAN = ScanModeConfig(
 
 DEEP_SCAN = ScanModeConfig(
     name="deep",
-    stages=("asset_discovery", "crawling", "template_scan", "payload_injection", "detection", "ai_analysis", "cve_intelligence"),
-    max_depth=4,
+    stages=("asset_discovery", "crawling", "template_scan", "payload_injection", "detection", "ai_analysis", "cve_intelligence", "attack_surface", "attack_path"),
+    max_depth=6,
     max_concurrency=40,
+    payload_concurrency=96,
     inject_headers=True,
     payload_mutation=True,
     cve_intelligence=True,
@@ -52,6 +56,7 @@ FULL_ATTACK_SURFACE_SCAN = ScanModeConfig(
     stages=("asset_discovery", "crawling", "template_scan", "payload_injection", "detection", "ai_analysis", "cve_intelligence"),
     max_depth=6,
     max_concurrency=60,
+    payload_concurrency=128,
     inject_headers=True,
     payload_mutation=True,
     cve_intelligence=True,

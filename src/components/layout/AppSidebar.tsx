@@ -2,7 +2,7 @@ import { useLanguage } from "@/hooks/use-language";
 import { useLocation, Link } from "react-router-dom";
 import {
   LayoutDashboard,
-  Server,
+  Globe,
   Radar,
   ShieldAlert,
   FileText,
@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { key: "nav.overview", icon: LayoutDashboard, path: "/" },
-  { key: "nav.assets", icon: Server, path: "/assets" },
+  { key: "nav.assets", icon: Globe, path: "/assets" },
   { key: "nav.scans", icon: Radar, path: "/scans" },
   { key: "nav.vulnerabilities", icon: ShieldAlert, path: "/vulnerabilities" },
   { key: "nav.reports", icon: FileText, path: "/reports" },

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLanguage } from "@/hooks/use-language";
+import { useLocation } from "react-router-dom";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -83,12 +84,14 @@ function VulnCard({ vuln, expanded, onToggle, onFpToggle, fpPending }: {
 }) {
   const sev = vuln.severity?.toLowerCase() ?? "low";
   const displayName = VULN_DISPLAY_NAMES[vuln.vulnerability_type] ?? vuln.vulnerability_type;
+  const isFP = !!vuln.is_false_positive;
 
   return (
     <div
       className={cn(
         "bg-card rounded-lg border border-border border-l-4 transition-shadow hover:shadow-sm",
-        severityLeftBorder[sev] ?? "border-l-border"
+        severityLeftBorder[sev] ?? "border-l-border",
+        isFP && "opacity-60 bg-muted/30",
       )}
     >
       {/* Card Header */}
@@ -112,8 +115,8 @@ function VulnCard({ vuln, expanded, onToggle, onFpToggle, fpPending }: {
               </Badge>
             )}
             {vuln.is_false_positive && (
-              <Badge variant="outline" className="text-[10px] bg-muted/50 border-border text-muted-foreground px-1.5 py-0">
-                Không hợp lệ
+              <Badge variant="outline" className="text-[10px] bg-amber-500/10 border-amber-500/30 text-amber-400 px-1.5 py-0">
+                False Positive
               </Badge>
             )}
           </div>
@@ -235,11 +238,16 @@ function VulnCard({ vuln, expanded, onToggle, onFpToggle, fpPending }: {
             <Button
               variant="outline"
               size="sm"
-              className="text-xs h-7"
+              className={cn(
+                "text-xs h-7 transition-colors",
+                isFP
+                  ? "bg-muted text-muted-foreground border-border hover:bg-muted/80"
+                  : "text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-500/10"
+              )}
               disabled={fpPending}
               onClick={onFpToggle}
             >
-              {vuln.is_false_positive ? "Bỏ đánh dấu" : "Đánh dấu không hợp lệ"}
+              {isFP ? "✗ Bỏ đánh dấu FP" : "⚠ Đánh dấu False Positive"}
             </Button>
             {vuln.cwe_id && (
               <span className="text-xs text-muted-foreground font-mono ml-auto">{vuln.cwe_id}</span>
@@ -253,10 +261,19 @@ function VulnCard({ vuln, expanded, onToggle, onFpToggle, fpPending }: {
 
 const Vulnerabilities = () => {
   const { t } = useLanguage();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [severityFilter, setSeverityFilter] = useState<string>("");
+  const [domainFilter, setDomainFilter] = useState<string>("");
+
+  // Hydrate domain filter from URL query param (?domain=xxx)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const domain = params.get("domain");
+    if (domain) setDomainFilter(domain);
+  }, [location.search]);
 
   const { data, isLoading } = useQuery({
     queryKey: ["vulnerabilities", severityFilter, search],
@@ -269,7 +286,27 @@ const Vulnerabilities = () => {
     refetchInterval: 30_000,
   });
 
-  const vulnerabilities = data?.items ?? [];
+  const allVulnerabilities = data?.items ?? [];
+
+  // Client-side domain filter (applied after the server-side endpoint search)
+  const vulnerabilities = domainFilter
+    ? allVulnerabilities.filter((v) => v.endpoint.includes(domainFilter))
+    : allVulnerabilities;
+
+  // Collect unique domain-like hostnames from loaded vulnerabilities for the dropdown
+  const domainOptions = Array.from(
+    new Set(
+      allVulnerabilities
+        .map((v) => {
+          try {
+            return new URL(v.endpoint).hostname;
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean) as string[]
+    )
+  ).sort();
 
   const fpMutation = useMutation({
     mutationFn: ({ id, fp }: { id: string; fp: boolean }) =>
@@ -282,7 +319,11 @@ const Vulnerabilities = () => {
       <div className="mb-5">
         <h1 className="text-2xl font-bold tracking-tight">{t("vulns.title")}</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          {isLoading ? "Đang tải..." : `${data?.total ?? 0} lỗ hổng được phát hiện`}
+          {isLoading
+            ? "Đang tải..."
+            : domainFilter
+            ? `${vulnerabilities.length} lỗ hổng — ${domainFilter}`
+            : `${data?.total ?? 0} lỗ hổng được phát hiện`}
         </p>
       </div>
 
@@ -316,6 +357,28 @@ const Vulnerabilities = () => {
             </button>
           ))}
         </div>
+
+        {/* Domain filter dropdown */}
+        {domainOptions.length > 0 && (
+          <select
+            value={domainFilter}
+            onChange={(e) => setDomainFilter(e.target.value)}
+            className="h-9 rounded-lg border border-border bg-background px-3 text-sm text-muted-foreground"
+          >
+            <option value="">Tất cả tên miền</option>
+            {domainOptions.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        )}
+        {domainFilter && (
+          <button
+            className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+            onClick={() => setDomainFilter("")}
+          >
+            Xoá lọc
+          </button>
+        )}
       </div>
 
       {/* Cards */}

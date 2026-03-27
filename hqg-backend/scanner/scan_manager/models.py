@@ -21,6 +21,8 @@ class ScanStage(str, Enum):
     DETECTION = "detection"
     AI_ANALYSIS = "ai_analysis"
     CVE_INTELLIGENCE = "cve_intelligence"
+    ATTACK_SURFACE = "attack_surface"
+    ATTACK_PATH = "attack_path"
     DONE = "done"
 
 

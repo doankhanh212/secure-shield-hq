@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from backend.celery_app import celery_app
 from scanner.payload_engine.injector import inject_requests_async
@@ -11,6 +12,33 @@ from scanner.payload_engine.request_builder import (
     build_injection_requests,
 )
 
+logger = logging.getLogger(__name__)
+
+
+def _limit_payload_sets(
+    payload_sets: dict[str, list[str]],
+    max_payloads_per_param: int | None,
+) -> dict[str, list[str]]:
+    if not max_payloads_per_param or max_payloads_per_param <= 0:
+        return payload_sets
+
+    return {
+        vuln_type: payloads[:max_payloads_per_param]
+        for vuln_type, payloads in payload_sets.items()
+    }
+
+
+def _request_key(request: object) -> tuple[object, ...]:
+    return (
+        request.method,
+        request.url,
+        request.vulnerability_type,
+        request.payload,
+        request.parameter,
+        tuple(sorted((request.headers or {}).items())),
+        tuple(sorted((request.form_data or {}).items())),
+    )
+
 
 async def _inject_payloads_async(
     endpoints: list[str],
@@ -19,11 +47,17 @@ async def _inject_payloads_async(
     payload_mutation: bool = False,
     forms: list[dict] | None = None,
     endpoint_info: list[dict] | None = None,
+    max_payloads_per_param: int | None = None,
+    timeout_seconds: float = 15.0,
+    allow_generic_fallback: bool = True,
+    scan_mode: str = "standard",
 ) -> list[dict[str, object]]:
     payload_sets = load_payloads()
 
     if payload_mutation:
         payload_sets = mutate_payloads(payload_sets)
+
+    payload_sets = _limit_payload_sets(payload_sets, max_payloads_per_param)
 
     # Build a quick lookup of url → known params from crawler EndpointInfo
     param_map: dict[str, list[str]] = {}
@@ -42,6 +76,7 @@ async def _inject_payloads_async(
                 payload_sets=payload_sets,
                 inject_headers=inject_headers,
                 known_params=known_params,
+                allow_generic_fallback=allow_generic_fallback,
             )
         )
 
@@ -51,9 +86,38 @@ async def _inject_payloads_async(
             build_form_injection_requests(form=form, payload_sets=payload_sets)
         )
 
+    # InjectionRequest is not hashable; dedupe via explicit signature.
+    seen: set[tuple[object, ...]] = set()
+    unique_requests = []
+    for request in all_requests:
+        key = _request_key(request)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_requests.append(request)
+
+    if len(unique_requests) != len(all_requests):
+        logger.info(
+            "Payload injection deduped %d duplicate requests (%d -> %d) timeout=%.1fs generic_fallback=%s",
+            len(all_requests) - len(unique_requests),
+            len(all_requests),
+            len(unique_requests),
+            timeout_seconds,
+            allow_generic_fallback,
+        )
+    else:
+        logger.info(
+            "Payload injection generated %d requests timeout=%.1fs generic_fallback=%s",
+            len(unique_requests),
+            timeout_seconds,
+            allow_generic_fallback,
+        )
+
     results = await inject_requests_async(
-        requests=all_requests,
+        requests=unique_requests,
         concurrency=concurrency,
+        timeout_seconds=timeout_seconds,
+        scan_mode=scan_mode,
     )
     return [result.to_dict() for result in results]
 
@@ -67,6 +131,10 @@ def inject_payloads(
     payload_mutation: bool = False,
     forms: list[dict] | None = None,
     endpoint_info: list[dict] | None = None,
+    max_payloads_per_param: int | None = None,
+    timeout_seconds: float = 15.0,
+    allow_generic_fallback: bool = True,
+    scan_mode: str = "standard",
 ) -> dict[str, object]:
     findings = asyncio.run(
         _inject_payloads_async(
@@ -76,6 +144,10 @@ def inject_payloads(
             payload_mutation=payload_mutation,
             forms=forms,
             endpoint_info=endpoint_info,
+            max_payloads_per_param=max_payloads_per_param,
+            timeout_seconds=timeout_seconds,
+            allow_generic_fallback=allow_generic_fallback,
+            scan_mode=scan_mode,
         )
     )
 

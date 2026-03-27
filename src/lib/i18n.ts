@@ -2,7 +2,7 @@ export type Lang = "vi" | "en";
 
 const translations: Record<string, Record<Lang, string>> = {
   "nav.overview": { vi: "Tổng quan", en: "Overview" },
-  "nav.assets": { vi: "Quản lý Tài sản", en: "Asset Management" },
+  "nav.assets": { vi: "Quản lý Tên miền", en: "Domain Management" },
   "nav.scans": { vi: "Quét Bảo mật", en: "Security Scans" },
   "nav.vulnerabilities": { vi: "Lỗ hổng", en: "Vulnerabilities" },
   "nav.reports": { vi: "Báo cáo", en: "Reports" },
@@ -30,8 +30,8 @@ const translations: Record<string, Record<Lang, string>> = {
   "dashboard.ips": { vi: "Địa chỉ IP", en: "IP Addresses" },
   "dashboard.exposed": { vi: "Dịch vụ Lộ diện", en: "Exposed Services" },
 
-  "assets.title": { vi: "Quản lý Tài sản", en: "Asset Management" },
-  "assets.addAsset": { vi: "Thêm Tài sản", en: "Add Asset" },
+  "assets.title": { vi: "Quản lý Tên miền", en: "Domain Management" },
+  "assets.addAsset": { vi: "Thêm Tên miền", en: "Add Domain" },
   "assets.domain": { vi: "Tên miền", en: "Domain" },
   "assets.type": { vi: "Loại", en: "Type" },
   "assets.status": { vi: "Trạng thái", en: "Status" },
@@ -47,7 +47,7 @@ const translations: Record<string, Record<Lang, string>> = {
   "scans.newScan": { vi: "Quét Mới", en: "New Scan" },
   "scans.quickScan": { vi: "Quét Nhanh", en: "Quick Scan" },
   "scans.standardScan": { vi: "Quét Tiêu chuẩn", en: "Standard Scan" },
-  "scans.deepScan": { vi: "Quét Sâu", en: "Deep Scan" },
+  "scans.deepScan": { vi: "Phân Tích Sâu", en: "Deep Analysis" },
   "scans.fullScan": { vi: "Quét Toàn diện", en: "Full Attack Surface" },
   "scans.progress": { vi: "Tiến trình Quét", en: "Scan Progress" },
   "scans.stage.discovery": { vi: "Khám phá Tài sản", en: "Asset Discovery" },

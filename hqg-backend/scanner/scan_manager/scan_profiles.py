@@ -64,6 +64,101 @@ SCAN_MODE_PROFILES: dict[str, dict] = {
             "enabled": True,
             "mode": "safe",
             "max_payloads_per_param": 10,
+            "timeout_seconds": 7.0,
+            "allow_generic_fallback": False,
+        },
+        "detection_engine": {
+            "enabled": True,
+            "skip_timing": False,
+            "skip_diff": False,
+        },
+        "security_checks": {
+            "enabled": False,
+        },
+        "ai_analyzer": {
+            "enabled": True,
+        },
+        "cve_intelligence": {
+            "enabled": True,
+        },
+        "reporting": {
+            "format": "full",
+            "html_report": True,
+        },
+    },
+
+    # ------------------------------------------------------------------
+    # DEEP — rộng hơn standard, cho phép fallback và payload nhiều hơn
+    # ------------------------------------------------------------------
+    "deep": {
+        "crawler": {
+            "max_pages": 500,
+            "max_depth": 8,
+            "follow_external": False,
+            "timeout_per_page": 15,
+            "discover_hidden_params": True,
+            "parse_javascript": True,
+        },
+        "template_engine": {
+            "enabled": True,
+            "categories": ["all"],
+        },
+        "payload_engine": {
+            "enabled": True,
+            "mode": "aggressive",
+            "max_payloads_per_param": 25,
+            "timeout_seconds": 10.0,
+            "allow_generic_fallback": True,
+            "include_fuzzing": True,
+        },
+        "detection_engine": {
+            "enabled": True,
+            "methods": ["error_pattern", "reflection", "time_based", "diff",
+                        "boolean_blind"],
+            "skip_timing": False,
+            "skip_diff": False,
+        },
+        "security_checks": {
+            "enabled": False,
+        },
+        "ai_analyzer": {
+            "enabled": True,
+            "deep_analysis": True,
+        },
+        "cve_intelligence": {
+            "enabled": True,
+            "include_epss": True,
+        },
+        "attack_surface": {
+            "enabled": True,
+        },
+        "attack_path": {
+            "enabled": True,
+        },
+        "reporting": {
+            "format": "intelligence",
+            "html_report": True,
+        },
+    },
+
+    # ------------------------------------------------------------------
+    # FULL — coverage lớn nhất, vẫn có giới hạn để tránh request explosion
+    # ------------------------------------------------------------------
+    "full": {
+        "crawler": {
+            "max_pages": 500,
+            "max_depth": 8,
+        },
+        "template_engine": {
+            "enabled": True,
+            "categories": ["all"],
+        },
+        "payload_engine": {
+            "enabled": True,
+            "mode": "full",
+            "max_payloads_per_param": 24,
+            "timeout_seconds": 12.0,
+            "allow_generic_fallback": True,
         },
         "detection_engine": {
             "enabled": True,

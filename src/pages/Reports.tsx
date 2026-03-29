@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "@/hooks/use-language";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useQuery } from "@tanstack/react-query";
 import { getScans, getReportByScan, getReportDownloadUrl, type ReportMeta } from "@/services/api";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 
 type SortOption = "newest" | "oldest" | "critical-first";
 
@@ -73,8 +74,35 @@ function getFormatsForMode(mode: string): string[] {
 const Reports = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("newest");
+  const [loadingFormat, setLoadingFormat] = useState<string | null>(null);
+
+  const handleDownload = useCallback(async (scanId: string, fmt: string) => {
+    const key = `${scanId}:${fmt}`;
+    setLoadingFormat(key);
+    try {
+      const url = getReportDownloadUrl(scanId, fmt);
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = `scan-${scanId.slice(0, 8)}.${fmt}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch {
+      toast({ title: `Không thể tải báo cáo ${fmt.toUpperCase()}`, variant: "destructive" });
+    } finally {
+      setLoadingFormat(null);
+    }
+  }, [toast]);
 
   const { data: scans, isLoading: scansLoading } = useQuery({
     queryKey: ["scans"],
@@ -85,8 +113,9 @@ const Reports = () => {
     (s) => s.status === "completed" || s.status === "running"
   );
 
+  const scanIds = completedScans.map((s) => s.scan_id).join(",");
   const { data: reportsMap, isLoading: reportsLoading } = useQuery({
-    queryKey: ["reports", completedScans.map((s) => s.scan_id)],
+    queryKey: ["reports", scanIds],
     queryFn: async () => {
       const results: Record<string, ReportMeta | null> = {};
       await Promise.all(
@@ -101,6 +130,8 @@ const Reports = () => {
       return results;
     },
     enabled: completedScans.length > 0,
+    placeholderData: (prev) => prev,  // keep previous data during refetch
+    staleTime: 30_000,  // don't refetch for 30s to avoid flicker
   });
 
   const isLoading = scansLoading || (completedScans.length > 0 && reportsLoading);
@@ -269,19 +300,25 @@ const Reports = () => {
                       Đang tạo...
                     </div>
                   ) : (
-                    formats.map((fmt) => (
-                      <a
-                        key={fmt}
-                        href={getReportDownloadUrl(scan.scan_id, fmt)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <button className="px-3 py-1.5 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-muted/50 transition-colors flex items-center gap-1">
-                          <Download className="h-3 w-3" />
+                    formats.map((fmt) => {
+                      const key = `${scan.scan_id}:${fmt}`;
+                      const isDownloading = loadingFormat === key;
+                      return (
+                        <button
+                          key={fmt}
+                          onClick={() => void handleDownload(scan.scan_id, fmt)}
+                          disabled={isDownloading}
+                          className="px-3 py-1.5 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-muted/50 transition-colors flex items-center gap-1 disabled:opacity-50"
+                        >
+                          {isDownloading ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Download className="h-3 w-3" />
+                          )}
                           {fmt.toUpperCase()}
                         </button>
-                      </a>
-                    ))
+                      );
+                    })
                   )}
                 </div>
 

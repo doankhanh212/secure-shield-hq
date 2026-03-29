@@ -185,6 +185,7 @@ def _build_scan_result_dict(
         "cve_intelligence": cve_records,
         "attack_surface": meta.get("attack_surface") or {},
         "attack_paths": meta.get("attack_paths") or [],
+        "false_positive_removed": int(meta.get("false_positive_removed", 0)),
     }
 
 

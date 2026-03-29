@@ -50,7 +50,7 @@ const SettingsPage = () => {
   const [nvdConfigured, setNvdConfigured] = useState(false);
   const [editingNvd, setEditingNvd] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [verifyResult, setVerifyResult] = useState<{ valid: boolean; message: string } | null>(null);
+  const [verifyResult, setVerifyResult] = useState<{ valid: boolean; message?: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
   const [toggles, setToggles] = useState({
@@ -69,9 +69,12 @@ const SettingsPage = () => {
     setVerifyResult(null);
     try {
       const result = await verifyNvdKey(nvdKey.trim());
-      setVerifyResult(result);
+      setVerifyResult({
+        valid: result.valid,
+        message: result.message ?? (result.valid ? "NVD API key is valid" : "Invalid API key"),
+      });
     } catch {
-      setVerifyResult({ valid: false, message: "Lỗi kết nối khi kiểm tra" });
+      setVerifyResult({ valid: false, message: "Connection failed" });
     } finally {
       setVerifying(false);
     }

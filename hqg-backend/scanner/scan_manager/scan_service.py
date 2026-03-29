@@ -88,15 +88,24 @@ def cancel_scan(scan_id: str) -> bool:
     return True
 
 
+def _normalize_finding(finding: dict[str, object]) -> dict[str, object]:
+    normalized = dict(finding)
+    normalized.setdefault("is_false_positive", False)
+    normalized.setdefault("false_positive_reason", "")
+    return normalized
+
+
 def store_findings(scan_id: str, findings: list[dict[str, object]]) -> None:
     r = _redis_client()
-    r.set(f"scan:{scan_id}:findings", json.dumps(findings), ex=86400 * 7)
+    normalized = [_normalize_finding(f) for f in findings]
+    r.set(f"scan:{scan_id}:findings", json.dumps(normalized), ex=86400 * 7)
 
 
 def get_findings(scan_id: str) -> list[dict[str, object]]:
     r = _redis_client()
     raw = r.get(f"scan:{scan_id}:findings")
-    return json.loads(raw) if raw else []
+    parsed = json.loads(raw) if raw else []
+    return [_normalize_finding(f) for f in parsed if isinstance(f, dict)]
 
 
 def store_discovery(scan_id: str, discovery: dict[str, object]) -> None:

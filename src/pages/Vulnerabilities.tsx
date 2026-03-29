@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLanguage } from "@/hooks/use-language";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getVulnerabilities, patchVulnerability, type Vulnerability } from "@/services/api";
+import { getVulnerabilities, setFindingFalsePositive, type Vulnerability } from "@/services/api";
 
 const SEVERITY_TABS = [
   { value: "", label: "Tất cả", color: "text-foreground" },
@@ -247,7 +247,7 @@ function VulnCard({ vuln, expanded, onToggle, onFpToggle, fpPending }: {
               disabled={fpPending}
               onClick={onFpToggle}
             >
-              {isFP ? "✗ Bỏ đánh dấu FP" : "⚠ Đánh dấu False Positive"}
+              {isFP ? "Unmark False Positive" : "Mark False Positive"}
             </Button>
             {vuln.cwe_id && (
               <span className="text-xs text-muted-foreground font-mono ml-auto">{vuln.cwe_id}</span>
@@ -262,6 +262,7 @@ function VulnCard({ vuln, expanded, onToggle, onFpToggle, fpPending }: {
 const Vulnerabilities = () => {
   const { t } = useLanguage();
   const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -273,7 +274,26 @@ const Vulnerabilities = () => {
     const params = new URLSearchParams(location.search);
     const domain = params.get("domain");
     if (domain) setDomainFilter(domain);
+    if (!domain) setDomainFilter("");
   }, [location.search]);
+
+  const applyDomainFilter = (nextDomain: string) => {
+    setDomainFilter(nextDomain);
+    const params = new URLSearchParams(location.search);
+    if (nextDomain) {
+      params.set("domain", nextDomain);
+    } else {
+      params.delete("domain");
+    }
+    const nextSearch = params.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : "",
+      },
+      { replace: true }
+    );
+  };
 
   const { data, isLoading } = useQuery({
     queryKey: ["vulnerabilities", severityFilter, search],
@@ -310,8 +330,12 @@ const Vulnerabilities = () => {
 
   const fpMutation = useMutation({
     mutationFn: ({ id, fp }: { id: string; fp: boolean }) =>
-      patchVulnerability(id, { is_false_positive: fp }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["vulnerabilities"] }),
+      setFindingFalsePositive(id, { is_false_positive: fp }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vulnerabilities"] });
+      queryClient.invalidateQueries({ queryKey: ["assets"] });
+      queryClient.invalidateQueries({ queryKey: ["domains"] });
+    },
   });
 
   return (
@@ -362,7 +386,7 @@ const Vulnerabilities = () => {
         {domainOptions.length > 0 && (
           <select
             value={domainFilter}
-            onChange={(e) => setDomainFilter(e.target.value)}
+            onChange={(e) => applyDomainFilter(e.target.value)}
             className="h-9 rounded-lg border border-border bg-background px-3 text-sm text-muted-foreground"
           >
             <option value="">Tất cả tên miền</option>
@@ -374,7 +398,7 @@ const Vulnerabilities = () => {
         {domainFilter && (
           <button
             className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-            onClick={() => setDomainFilter("")}
+            onClick={() => applyDomainFilter("")}
           >
             Xoá lọc
           </button>

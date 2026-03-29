@@ -50,6 +50,7 @@ export interface Vulnerability {
   endpoint: string;
   vulnerability_type: string;
   is_false_positive: boolean;
+  false_positive_reason?: string;
   explanation?: string;
   remediation?: string;
   status?: string;
@@ -96,6 +97,32 @@ export interface AssetDiscovery {
   subdomains: string[];
   services: { port: number; service: string; version?: string }[];
   technologies: string[];
+}
+
+export interface Domain {
+  id: string;
+  domain: string;
+  url: string;
+  subdomains: string[];
+  technologies: string[];
+  last_scan_id: string | null;
+  last_scan_date: string | null;
+  last_scan_mode: string | null;
+  total_scans: number;
+  total_vulnerabilities: number;
+  severity_counts: Record<string, number>;
+  vuln_counts: {
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+    total: number;
+  };
+  false_positive_count: number;
+  active_vuln_count: number;
+  risk_score: number;
+  status: string;
+  created_at: string;
 }
 
 export interface ReportMeta {
@@ -216,17 +243,43 @@ export function getAssetDiscovery(scanId: string): Promise<AssetDiscovery> {
   return request<AssetDiscovery>(`${API_BASE}/assets/${encodeURIComponent(scanId)}/discovery`);
 }
 
+// ── Domains ─────────────────────────────────────────────────────────────────
+
+export function getDomains(): Promise<Domain[]> {
+  return request<Domain[]>(`${API_BASE}/domains`);
+}
+
+export function createDomain(url: string): Promise<Domain> {
+  return request<Domain>(`${API_BASE}/domains`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+}
+
+export function deleteDomain(id: string): Promise<{ message: string }> {
+  return request(`${API_BASE}/domains/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export function getDomainReportDownloadUrl(domainId: string, format: string): string {
+  return `${API_BASE}/domains/${encodeURIComponent(domainId)}/report?format=${encodeURIComponent(format)}`;
+}
+
 // ── Vulnerabilities ────────────────────────────────────────────────────────
 
 export function getVulnerabilities(params?: {
   scan_id?: string;
   severity?: string;
+  domain?: string;
   endpoint?: string;
   limit?: number;
 }): Promise<VulnerabilityResponse> {
   const url = new URL(`${API_BASE}/vulnerabilities`, window.location.origin);
   if (params?.scan_id) url.searchParams.set("scan_id", params.scan_id);
   if (params?.severity) url.searchParams.set("severity", params.severity);
+  if (params?.domain) url.searchParams.set("domain", params.domain);
   if (params?.endpoint) url.searchParams.set("endpoint", params.endpoint);
   if (params?.limit) url.searchParams.set("limit", String(params.limit));
   return request<VulnerabilityResponse>(url.toString());
@@ -238,10 +291,21 @@ export function getVulnerability(id: string): Promise<Vulnerability> {
 
 export function patchVulnerability(
   id: string,
-  data: { status?: string; is_false_positive?: boolean; remediation_note?: string }
+  data: { status?: string; is_false_positive?: boolean; false_positive_reason?: string; remediation_note?: string }
 ): Promise<Vulnerability> {
   return request(`${API_BASE}/vulnerabilities/${encodeURIComponent(id)}`, {
     method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function setFindingFalsePositive(
+  id: string,
+  data: { is_false_positive: boolean; false_positive_reason?: string }
+): Promise<Vulnerability> {
+  return request(`${API_BASE}/findings/${encodeURIComponent(id)}/false-positive`, {
+    method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
@@ -300,12 +364,27 @@ export function updateSettings(data: Record<string, unknown>): Promise<{ status:
   });
 }
 
-export function verifyNvdKey(apiKey: string): Promise<{ valid: boolean; message: string }> {
-  return request(`${API_BASE}/settings/verify-nvd-key`, {
+export async function verifyNvdKey(apiKey: string): Promise<{ valid: boolean; message?: string }> {
+  const token = localStorage.getItem("access_token");
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/settings/verify-nvd-key`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ api_key: apiKey }),
   });
+  if (res.status === 401) {
+    logout();
+    return { valid: false, message: "Unauthorized" };
+  }
+  const payload = await res.json().catch(() => ({}));
+  return {
+    valid: !!payload.valid,
+    message: typeof payload.message === "string" ? payload.message : undefined,
+  };
 }
 
 // ── WebSocket ──────────────────────────────────────────────────────────────

@@ -10,53 +10,13 @@ import { Plus, Search, Globe, Trash2, Loader2, ExternalLink, FileDown } from "lu
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { deleteAsset } from "@/services/api";
-
-const API_BASE = "/api/v1";
-
-interface Domain {
-  id: string;
-  domain: string;
-  url: string;
-  subdomains: string[];
-  technologies: string[];
-  last_scan_id: string | null;
-  last_scan_date: string | null;
-  last_scan_mode: string | null;
-  total_scans: number;
-  total_vulnerabilities: number;
-  severity_counts: Record<string, number>;
-  vuln_counts?: {
-    critical: number;
-    high: number;
-    medium: number;
-    low: number;
-    total: number;
-  };
-  false_positive_count?: number;
-  active_vuln_count?: number;
-  risk_score: number;
-  status: string;
-  created_at: string;
-}
-
-function getDomains(): Promise<Domain[]> {
-  return fetch(`${API_BASE}/assets`).then((r) => {
-    if (!r.ok) throw new Error("Failed to fetch domains");
-    return r.json();
-  });
-}
-
-function addDomain(url: string): Promise<Domain> {
-  return fetch(`${API_BASE}/assets`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
-  }).then((r) => {
-    if (!r.ok) throw new Error("Failed to add domain");
-    return r.json();
-  });
-}
+import {
+  createDomain,
+  deleteDomain,
+  getDomainReportDownloadUrl,
+  getDomains,
+  type Domain,
+} from "@/services/api";
 
 function getRiskBarColor(score: number): string {
   if (score >= 80) return "bg-emerald-500";
@@ -105,7 +65,7 @@ const AssetManagement = () => {
   });
 
   const addMutation = useMutation({
-    mutationFn: () => addDomain(newUrl),
+    mutationFn: () => createDomain(newUrl),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["assets"] });
       setDialogOpen(false);
@@ -114,7 +74,7 @@ const AssetManagement = () => {
   });
 
   const removeMutation = useMutation({
-    mutationFn: (id: string) => deleteAsset(id),
+    mutationFn: (id: string) => deleteDomain(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assets"] }),
   });
 
@@ -390,12 +350,12 @@ const AssetManagement = () => {
                               onClick={() => void navigate(`/vulnerabilities?domain=${encodeURIComponent(d.domain)}`)}
                             >
                               <ExternalLink className="h-3 w-3" />
-                              Chi tiết
+                              Xem chi tiết
                             </button>
                           )}
                           {d.last_scan_id && (
                             <a
-                              href={`/api/v1/assets/${encodeURIComponent(d.id)}/report?format=html`}
+                              href={getDomainReportDownloadUrl(d.id, "html")}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"

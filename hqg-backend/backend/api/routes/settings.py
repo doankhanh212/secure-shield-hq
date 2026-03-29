@@ -6,6 +6,7 @@ import os
 import httpx
 from fastapi import APIRouter, Body
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
 
 import redis as _redis
 
@@ -95,14 +96,14 @@ async def update_platform_settings(data: dict = Body(...)) -> dict[str, object]:
 # ── POST /settings/verify-nvd-key ────────────────────────────────────────────
 
 @router.post("/verify-nvd-key", summary="Verify an NVD API key by sending a live probe")
-async def verify_nvd_key(data: dict = Body(...)) -> dict[str, object]:
+async def verify_nvd_key(data: dict = Body(...)) -> object:
     """
     Send a minimal probe to the NVD REST API and confirm the provided key is valid.
     Returns ``{ "valid": true|false, "message": "..." }``.
     """
     api_key = str(data.get("api_key", "")).strip()
     if not api_key:
-        return {"valid": False, "message": "API key không được để trống"}
+        return {"valid": False, "message": "Invalid API key"}
 
     url = "https://services.nvd.nist.gov/rest/json/cves/2.0?resultsPerPage=1"
     try:
@@ -110,14 +111,14 @@ async def verify_nvd_key(data: dict = Body(...)) -> dict[str, object]:
             response = await client.get(url, headers={"apiKey": api_key})
 
         if response.status_code == 200:
-            return {"valid": True, "message": "Kết nối NVD thành công"}
+            return {"valid": True}
         if response.status_code == 403:
-            return {"valid": False, "message": "API key không hợp lệ (403 Forbidden)"}
-        return {
-            "valid": False,
-            "message": f"NVD trả về lỗi {response.status_code}",
-        }
+            return JSONResponse(
+                status_code=403,
+                content={"valid": False, "message": "Invalid API key"},
+            )
+        return {"valid": False, "message": f"NVD returned {response.status_code}"}
     except httpx.TimeoutException:
-        return {"valid": False, "message": "Không thể kết nối đến NVD (timeout 10s)"}
+        return {"valid": False, "message": "Connection failed"}
     except Exception as exc:
-        return {"valid": False, "message": f"Lỗi kết nối: {exc}"}
+        return {"valid": False, "message": f"Connection failed: {exc}"}

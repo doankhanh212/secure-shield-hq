@@ -55,6 +55,49 @@ def _extract_domain(target: str) -> str:
     return host.split(":")[0].strip().lower()
 
 
+_SEVERITY_KEYS = ("critical", "high", "medium", "low")
+
+
+def _summarize_findings(findings: list[dict] | None) -> dict[str, object]:
+    all_findings = findings or []
+    sev_counts = {key: 0 for key in _SEVERITY_KEYS}
+    false_positive_count = 0
+    active_vuln_count = 0
+
+    for finding in all_findings:
+        if bool(finding.get("is_false_positive", False)):
+            false_positive_count += 1
+            continue
+
+        active_vuln_count += 1
+        sev = str(finding.get("severity", "")).strip().lower()
+        if sev in sev_counts:
+            sev_counts[sev] += 1
+
+    penalty = (
+        sev_counts["critical"] * 25
+        + sev_counts["high"] * 15
+        + sev_counts["medium"] * 8
+        + sev_counts["low"] * 3
+    )
+    risk_score = max(0.0, float(100 - penalty))
+
+    return {
+        "total_vulnerabilities": len(all_findings),
+        "severity_counts": sev_counts,
+        "false_positive_count": false_positive_count,
+        "active_vuln_count": active_vuln_count,
+        "vuln_counts": {
+            "critical": sev_counts["critical"],
+            "high": sev_counts["high"],
+            "medium": sev_counts["medium"],
+            "low": sev_counts["low"],
+            "total": active_vuln_count,
+        },
+        "risk_score": risk_score,
+    }
+
+
 def register_domain_from_scan(
     target: str,
     scan_id: str,
@@ -88,37 +131,21 @@ def register_domain_from_scan(
         elif isinstance(item, str):
             technologies.append(item)
 
-    # Count vulnerabilities by severity and false positives
-    vuln_count = len(findings) if findings else 0
-    sev_counts: dict[str, int] = {}
-    fp_count = 0
-    for f in (findings or []):
-        sev = str(f.get("severity", "")).lower()
-        if sev:
-            sev_counts[sev] = sev_counts.get(sev, 0) + 1
-        if f.get("is_false_positive"):
-            fp_count += 1
-
-    # Calculate risk score (100 - penalty) — only active (non-FP) findings count
-    active_count = vuln_count - fp_count
-    penalty = (
-        sev_counts.get("critical", 0) * 25
-        + sev_counts.get("high", 0) * 15
-        + sev_counts.get("medium", 0) * 8
-        + sev_counts.get("low", 0) * 3
-    )
-    risk_score = max(0.0, float(100 - penalty))
+    summary = _summarize_findings(findings)
 
     if existing:
+        prev_scan_id = str(existing.get("last_scan_id") or "")
         existing["last_scan_id"] = scan_id
         existing["last_scan_date"] = now
         existing["last_scan_mode"] = scan_mode
-        existing["total_scans"] = existing.get("total_scans", 0) + 1
-        existing["total_vulnerabilities"] = vuln_count
-        existing["severity_counts"] = sev_counts
-        existing["false_positive_count"] = fp_count
-        existing["active_vuln_count"] = max(0, vuln_count - fp_count)
-        existing["risk_score"] = risk_score
+        existing["total_scans"] = existing.get("total_scans", 0) + (
+            0 if prev_scan_id == scan_id else 1
+        )
+        existing["total_vulnerabilities"] = summary["total_vulnerabilities"]
+        existing["severity_counts"] = summary["severity_counts"]
+        existing["false_positive_count"] = summary["false_positive_count"]
+        existing["active_vuln_count"] = summary["active_vuln_count"]
+        existing["risk_score"] = summary["risk_score"]
         if subdomains:
             merged = list(set(existing.get("subdomains", []) + subdomains))
             existing["subdomains"] = merged
@@ -137,11 +164,11 @@ def register_domain_from_scan(
             "last_scan_date": now,
             "last_scan_mode": scan_mode,
             "total_scans": 1,
-            "total_vulnerabilities": vuln_count,
-            "severity_counts": sev_counts,
-            "false_positive_count": fp_count,
-            "active_vuln_count": max(0, vuln_count - fp_count),
-            "risk_score": risk_score,
+            "total_vulnerabilities": summary["total_vulnerabilities"],
+            "severity_counts": summary["severity_counts"],
+            "false_positive_count": summary["false_positive_count"],
+            "active_vuln_count": summary["active_vuln_count"],
+            "risk_score": summary["risk_score"],
             "status": "active",
             "created_at": now,
             "updated_at": now,
@@ -164,27 +191,30 @@ async def list_assets() -> list[dict[str, object]]:
             if not data:
                 continue
 
-            # Recompute live false positive / vuln counts from stored findings
+            # Recompute domain vulnerability summary from the latest findings.
             last_scan_id = data.get("last_scan_id")
             if last_scan_id:
                 findings = get_findings(str(last_scan_id))
-                fp_count = sum(1 for f in findings if f.get("is_false_positive"))
-                total = data.get("total_vulnerabilities", len(findings))
-                data["false_positive_count"] = fp_count
-                data["active_vuln_count"] = max(0, int(total) - fp_count)
+                summary = _summarize_findings(findings)
+                data["total_vulnerabilities"] = summary["total_vulnerabilities"]
+                data["severity_counts"] = summary["severity_counts"]
+                data["false_positive_count"] = summary["false_positive_count"]
+                data["active_vuln_count"] = summary["active_vuln_count"]
+                data["risk_score"] = summary["risk_score"]
+                data["vuln_counts"] = summary["vuln_counts"]
             else:
+                data.setdefault("total_vulnerabilities", 0)
+                data.setdefault("severity_counts", {k: 0 for k in _SEVERITY_KEYS})
                 data.setdefault("false_positive_count", 0)
-                data.setdefault("active_vuln_count", int(data.get("total_vulnerabilities", 0)))
-
-            # Expose severity_counts under an alias compatible with the frontend prompt
-            sev = data.get("severity_counts") or {}
-            data["vuln_counts"] = {
-                "critical": sev.get("critical", 0),
-                "high": sev.get("high", 0),
-                "medium": sev.get("medium", 0),
-                "low": sev.get("low", 0),
-                "total": int(data.get("total_vulnerabilities", 0)),
-            }
+                data.setdefault("active_vuln_count", 0)
+                data.setdefault("risk_score", 100.0)
+                data["vuln_counts"] = {
+                    "critical": 0,
+                    "high": 0,
+                    "medium": 0,
+                    "low": 0,
+                    "total": 0,
+                }
             out.append(data)
         return sorted(out, key=lambda a: a.get("last_scan_date") or a.get("created_at", ""), reverse=True)
     return await run_in_threadpool(_load)
@@ -215,6 +245,8 @@ async def create_asset(body: DomainCreate) -> dict[str, object]:
             "total_scans": 0,
             "total_vulnerabilities": 0,
             "severity_counts": {},
+            "false_positive_count": 0,
+            "active_vuln_count": 0,
             "risk_score": 100.0,
             "status": "active",
             "created_at": now,
@@ -280,7 +312,7 @@ async def domain_report(domain_id: str, format: str = "html") -> object:  # noqa
     if fmt not in ("json", "csv", "html", "pdf"):
         raise HTTPException(status_code=400, detail=f"Unsupported format: {fmt!r}")
 
-    def _build() -> Path:
+    def _build() -> tuple[Path, int]:
         from scanner.scan_manager.scan_service import get_findings, get_discovery, get_attack_paths, get_attack_surface
 
         r = _r()
@@ -337,7 +369,7 @@ async def domain_report(domain_id: str, format: str = "html") -> object:  # noqa
                 "discovery": discovery,
                 "attack_surface": attack_surface,
                 "attack_paths": attack_paths,
-                "false_positive_excluded": fp_count,
+                "false_positive_removed": fp_count,
             }
             scan_result = _build_scan_result_dict(
                 scan_id=str(scan_id),
@@ -345,21 +377,26 @@ async def domain_report(domain_id: str, format: str = "html") -> object:  # noqa
                 analyzed_vulnerabilities=active_findings,
                 meta=meta,
             )
-            # Annotate with FP note
-            scan_result["false_positive_excluded"] = fp_count
+            scan_result["false_positive_removed"] = fp_count
             out_path = out_dir / f"domain_{domain_id}.html"
             write_html(scan_result, out_path)
-            return out_path
+            return out_path, fp_count
 
         if fmt == "json":
-            from reporting.engine.json_report import write_json
-            return write_json(report, out_dir)
+            out_path = out_dir / f"domain_{domain_id}.json"
+            payload = report.to_dict()
+            payload["metadata"] = {"false_positive_removed": fp_count}
+            out_path.write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+            return out_path, fp_count
         if fmt == "csv":
             from reporting.engine.csv_report import write_csv
-            return write_csv(report, out_dir)
+            return write_csv(report, out_dir), fp_count
         if fmt == "pdf":
             from reporting.engine.pdf_report import write_pdf
-            return write_pdf(report, out_dir)
+            return write_pdf(report, out_dir), fp_count
         raise ValueError(f"Unsupported format: {fmt!r}")
 
     _media: dict[str, str] = {
@@ -369,9 +406,10 @@ async def domain_report(domain_id: str, format: str = "html") -> object:  # noqa
         "pdf": "application/pdf",
     }
 
-    path = await run_in_threadpool(_build)
+    path, false_positive_removed = await run_in_threadpool(_build)
     return FileResponse(
         path=str(path),
         media_type=_media[fmt],
         filename=f"domain-{domain_id}.{fmt}",
+        headers={"X-False-Positive-Removed": str(false_positive_removed)},
     )

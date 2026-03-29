@@ -52,6 +52,8 @@ class AnalyzedVulnerability:
     confidence_score: float = 0.0    # 0.0–1.0
     confidence_label_text: str = ""  # Confirmed / Likely / Potential
     false_positive_likelihood: float = 0.0  # 0.0–1.0
+    is_false_positive: bool = False
+    false_positive_reason: str = ""
 
     def compute_severity(self) -> None:
         """Set self.severity from self.cvss_score using CVSS v3.1 thresholds."""
@@ -85,6 +87,8 @@ class AnalyzedVulnerability:
             "confidence_score": round(self.confidence_score, 3),
             "confidence_label": self.confidence_label_text,
             "false_positive_likelihood": round(self.false_positive_likelihood, 3),
+            "is_false_positive": self.is_false_positive,
+            "false_positive_reason": self.false_positive_reason,
             "detection_method": self.detection_method,
             "evidence": self.evidence,
             "explanation": self.explanation,

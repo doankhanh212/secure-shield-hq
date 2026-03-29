@@ -16,6 +16,7 @@ class AnalyzedVulnerability:
     payload: str = ""
     detection_method: str = ""
     is_false_positive: bool = False
+    false_positive_reason: str = ""
     tags: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
@@ -31,5 +32,6 @@ class AnalyzedVulnerability:
             "payload": self.payload,
             "detection_method": self.detection_method,
             "is_false_positive": self.is_false_positive,
+            "false_positive_reason": self.false_positive_reason,
             "tags": self.tags,
         }

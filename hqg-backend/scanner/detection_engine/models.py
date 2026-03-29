@@ -77,6 +77,8 @@ class VulnerabilityFinding:
     evidence: str = field(default="")   # response snippet proving the finding
     parameter: str = field(default="")  # injected parameter name, e.g. "q", "id"
     http_method: str = field(default="GET")
+    is_false_positive: bool = field(default=False)
+    false_positive_reason: str = field(default="")
     finding_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     discovered_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
 
@@ -115,6 +117,8 @@ class VulnerabilityFinding:
             "severity": self.severity,
             "confidence": self.confidence,
             "detection_method": self.detection_method,
+            "is_false_positive": self.is_false_positive,
+            "false_positive_reason": self.false_positive_reason,
             "evidence": self.evidence,
             "discovered_at": self.discovered_at,
         }

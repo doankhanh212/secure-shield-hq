@@ -78,6 +78,10 @@ async def _execute_request(
             )
 
 
+_GLOBAL_ERROR_THRESHOLD: int = 50
+"""When total skip-code responses across all endpoints exceed this, stop the scan."""
+
+
 async def inject_requests_async(
     requests: list[InjectionRequest],
     concurrency: int = 40,
@@ -86,6 +90,7 @@ async def inject_requests_async(
 ) -> list[InjectionResult]:
     max_requests = _MAX_REQUESTS_BY_MODE.get(scan_mode, 2000)
     rate_delay = _RATE_DELAY_BY_MODE.get(scan_mode, 0.1)
+    batch_size = min(concurrency, 20)  # process in small batches for error visibility
 
     # Hard-cap total requests upfront to prevent runaway scans.
     if len(requests) > max_requests:
@@ -101,15 +106,14 @@ async def inject_requests_async(
 
     # Per-endpoint consecutive-error counter (shared across concurrent tasks via asyncio).
     endpoint_errors: dict[str, int] = {}
+    global_errors: int = 0
+    all_results: list[InjectionResult] = []
 
     async def _execute_with_guards(req: InjectionRequest) -> InjectionResult:
-        """Wrapper that enforces per-endpoint error limit and post-request delay."""
+        nonlocal global_errors
+
         # Skip endpoint if it already exceeded the error threshold.
         if endpoint_errors.get(req.endpoint, 0) >= _MAX_ERRORS_PER_ENDPOINT:
-            logger.debug(
-                "Skipping endpoint %s: %d consecutive skip-code responses",
-                req.endpoint, _MAX_ERRORS_PER_ENDPOINT,
-            )
             return InjectionResult(
                 endpoint=req.endpoint,
                 vulnerability_type=req.vulnerability_type,
@@ -125,10 +129,14 @@ async def inject_requests_async(
         # Track bad responses per endpoint.
         if result.response_code in _SKIP_CODES:
             endpoint_errors[req.endpoint] = endpoint_errors.get(req.endpoint, 0) + 1
-            logger.debug(
-                "Endpoint %s returned HTTP %s (error count: %d)",
-                req.endpoint, result.response_code, endpoint_errors[req.endpoint],
-            )
+            global_errors += 1
+            if endpoint_errors[req.endpoint] >= _MAX_ERRORS_PER_ENDPOINT:
+                logger.warning(
+                    "Skipping endpoint %s after %d skip-code responses",
+                    req.endpoint, _MAX_ERRORS_PER_ENDPOINT,
+                )
+        elif result.error and "endpoint_skipped" not in (result.error or ""):
+            global_errors += 1
 
         # Courtesy delay to avoid overwhelming the target.
         if rate_delay > 0:
@@ -143,5 +151,35 @@ async def inject_requests_async(
         verify=False,
         limits=limits,
     ) as client:
-        tasks = [_execute_with_guards(req) for req in requests]
-        return await asyncio.gather(*tasks)
+        # Process requests in batches so endpoint error tracking is effective.
+        # After each batch, check global error threshold before continuing.
+        for i in range(0, len(requests), batch_size):
+            if global_errors >= _GLOBAL_ERROR_THRESHOLD:
+                logger.error(
+                    "Global error threshold reached (%d errors) — aborting remaining %d requests",
+                    global_errors, len(requests) - i,
+                )
+                break
+
+            batch = requests[i : i + batch_size]
+            # Filter out requests for already-dead endpoints before scheduling
+            live_batch = [
+                req for req in batch
+                if endpoint_errors.get(req.endpoint, 0) < _MAX_ERRORS_PER_ENDPOINT
+            ]
+            if not live_batch:
+                continue
+
+            batch_results = await asyncio.gather(
+                *[_execute_with_guards(req) for req in live_batch]
+            )
+            all_results.extend(batch_results)
+
+    skipped = sum(1 for r in all_results if r.error and "endpoint_skipped" in (r.error or ""))
+    if skipped or global_errors:
+        logger.info(
+            "Injection complete: %d results, %d skipped, %d global errors",
+            len(all_results), skipped, global_errors,
+        )
+
+    return all_results

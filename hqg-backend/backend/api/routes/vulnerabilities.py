@@ -32,13 +32,14 @@ def _decode_vuln_id(vuln_id: str) -> tuple[str, int]:
 async def list_vulnerabilities(
     scan_id: Annotated[str | None, Query(description="Filter by scan ID")] = None,
     severity: Annotated[str | None, Query(description="Filter by severity (Critical/High/Medium/Low)")] = None,
+    domain: Annotated[str | None, Query(description="Filter by domain/hostname substring")] = None,
     endpoint: Annotated[str | None, Query(description="Filter by endpoint substring")] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
 ) -> dict[str, object]:
     """
     Return a paginated vulnerability list.
 
-    Supports optional filters: ``scan_id``, ``severity``, ``endpoint``.
+    Supports optional filters: ``scan_id``, ``severity``, ``domain``, ``endpoint``.
     If ``scan_id`` is omitted the 200 most-recent findings across all scans
     are returned (newest scans first).
     """
@@ -60,6 +61,9 @@ async def list_vulnerabilities(
         if severity:
             sev_lower = severity.lower()
             items = [v for v in items if str(v.get("severity", "")).lower() == sev_lower]
+        if domain:
+            domain_lower = domain.lower()
+            items = [v for v in items if domain_lower in str(v.get("endpoint", "")).lower()]
         if endpoint:
             items = [v for v in items if endpoint in str(v.get("endpoint", ""))]
 
@@ -108,13 +112,15 @@ async def get_vulnerability(vuln_id: str) -> dict[str, object]:
 class VulnPatch(BaseModel):
     status: str | None = None
     is_false_positive: bool | None = None
+    false_positive_reason: str | None = None
     remediation_note: str | None = None
 
 
 @router.patch("/{vuln_id}", summary="Update vulnerability fields")
 async def patch_vulnerability(vuln_id: str, body: VulnPatch) -> dict[str, object]:
     """
-    Update mutable fields on a vulnerability: status, is_false_positive, remediation_note.
+    Update mutable fields on a vulnerability: status, is_false_positive,
+    false_positive_reason, remediation_note.
     """
     try:
         scan_id, idx = _decode_vuln_id(vuln_id)
@@ -130,6 +136,8 @@ async def patch_vulnerability(vuln_id: str, body: VulnPatch) -> dict[str, object
 
         vuln = findings[idx]
         updates = body.model_dump(exclude_none=True)
+        if updates.get("is_false_positive") is False and "false_positive_reason" not in updates:
+            updates["false_positive_reason"] = ""
         vuln.update(updates)
         findings[idx] = vuln
         store_findings(scan_id, findings)

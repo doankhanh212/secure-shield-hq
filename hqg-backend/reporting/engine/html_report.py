@@ -551,6 +551,18 @@ def _render_score_grid(risk: dict) -> str:
     )
 
 
+def _render_false_positive_removed(scan_result: dict) -> str:
+    removed = int(scan_result.get("false_positive_removed", 0))
+    if removed <= 0:
+        return ""
+    return (
+        '<div class="callout callout-info" style="margin-bottom:24px">'
+        '<span>ℹ</span>'
+        f'<span>{removed} false positives removed from this report.</span>'
+        '</div>'
+    )
+
+
 def _render_single_finding(v: dict, detail_id: str, is_open: bool) -> str:
     sev        = str(v.get("severity", "Low"))
     fid        = str(v.get("finding_id", ""))[:8] or _short_id(v)
@@ -1074,6 +1086,7 @@ def _render(scan_result: dict) -> str:
 
     # Score grid
     parts.append(_render_score_grid(risk))
+    parts.append(_render_false_positive_removed(scan_result))
 
     # Findings
     parts.append(_render_findings_section(vulns))

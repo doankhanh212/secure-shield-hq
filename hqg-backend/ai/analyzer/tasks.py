@@ -33,6 +33,7 @@ def _analyze_single(finding: dict[str, object]) -> AnalyzedVulnerability | None:
             payload=payload,
             detection_method=str(finding.get("detection_method", "")),
             is_false_positive=True,
+            false_positive_reason="Classified as likely false positive.",
         )
 
     # 2. Security-standards mapping

@@ -17,13 +17,15 @@ export function AttackSurfaceOverview({ domains, subdomains, apis, ips, exposed,
   const { t } = useLanguage();
   const navigate = useNavigate();
 
-  const metrics = [
-    { key: "dashboard.domains", value: domains, icon: Globe, color: "text-primary", to: "/assets?type=domains" },
-    { key: "dashboard.subdomains", value: subdomains, icon: GitBranch, color: "text-info", to: "/assets?type=subdomains" },
-    { key: "dashboard.apis", value: apis, icon: Server, color: "text-success", to: "/assets?type=apis" },
-    { key: "dashboard.ips", value: ips, icon: Wifi, color: "text-warning", to: "/assets?type=ips" },
-    { key: "dashboard.exposed", value: exposed, icon: AlertTriangle, color: "text-destructive", to: "/assets?type=exposed" },
+  const allMetrics = [
+    { key: "dashboard.domains", value: domains, icon: Globe, color: "text-primary", to: "/assets?type=domains", alwaysShow: true },
+    { key: "dashboard.subdomains", value: subdomains, icon: GitBranch, color: "text-info", to: "/assets?type=subdomains", alwaysShow: true },
+    { key: "dashboard.apis", value: apis, icon: Server, color: "text-success", to: "/assets?type=apis", alwaysShow: false },
+    { key: "dashboard.ips", value: ips, icon: Wifi, color: "text-warning", to: "/assets?type=ips", alwaysShow: false },
+    { key: "dashboard.exposed", value: exposed, icon: AlertTriangle, color: "text-destructive", to: "/assets?type=exposed", alwaysShow: false },
   ];
+
+  const metrics = allMetrics.filter((m) => m.alwaysShow || m.value > 0);
 
   return (
     <div className="bg-card rounded-lg border border-border p-5 animate-fade-in">
@@ -31,7 +33,12 @@ export function AttackSurfaceOverview({ domains, subdomains, apis, ips, exposed,
         <Globe className="h-4 w-4 text-primary" />
         {t("dashboard.attackSurface")}
       </h3>
-      <div className="grid grid-cols-5 gap-3">
+      <div className={cn("grid gap-3", {
+        "grid-cols-2": metrics.length === 2,
+        "grid-cols-3": metrics.length === 3,
+        "grid-cols-4": metrics.length === 4,
+        "grid-cols-5": metrics.length >= 5,
+      })}>
         {metrics.map((m) => (
           <button
             key={m.key}

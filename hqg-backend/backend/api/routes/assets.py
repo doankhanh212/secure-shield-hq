@@ -207,14 +207,8 @@ async def list_assets() -> list[dict[str, object]]:
                 data.setdefault("severity_counts", {k: 0 for k in _SEVERITY_KEYS})
                 data.setdefault("false_positive_count", 0)
                 data.setdefault("active_vuln_count", 0)
-                data.setdefault("risk_score", 100.0)
-                data["vuln_counts"] = {
-                    "critical": 0,
-                    "high": 0,
-                    "medium": 0,
-                    "low": 0,
-                    "total": 0,
-                }
+                data["risk_score"] = None  # never scanned → no risk score
+                data["vuln_counts"] = None  # never scanned → no vuln data
             out.append(data)
         return sorted(out, key=lambda a: a.get("last_scan_date") or a.get("created_at", ""), reverse=True)
     return await run_in_threadpool(_load)
@@ -247,7 +241,7 @@ async def create_asset(body: DomainCreate) -> dict[str, object]:
             "severity_counts": {},
             "false_positive_count": 0,
             "active_vuln_count": 0,
-            "risk_score": 100.0,
+            "risk_score": None,
             "status": "active",
             "created_at": now,
             "updated_at": now,

@@ -90,3 +90,69 @@ async def search_nvd(
         )
 
     return records
+
+
+async def search_cves_by_cpe(
+    cpe: str,
+    client: httpx.AsyncClient,
+    api_key: str | None = None,
+) -> list[dict]:
+    """
+    Precise CVE lookup using NVD 2.0 cpeName parameter.
+
+    Complements the existing keyword search with version-exact results.
+    Only called when a Wappalyzer detection yielded a versioned CPE.
+
+    Returns plain dicts (not CVERecord) so callers control dedup + typing.
+    """
+    params = {"cpeName": cpe, "resultsPerPage": 20}
+    req_headers = {"apiKey": api_key} if api_key else {}
+    try:
+        resp = await client.get(
+            NVD_API_BASE,
+            params=params,
+            headers=req_headers,
+            timeout=15.0,
+        )
+        if resp.status_code != 200:
+            logger.warning("NVD CPE lookup HTTP %d for: %s", resp.status_code, cpe)
+            return []
+
+        results: list[dict] = []
+        for item in resp.json().get("vulnerabilities", []):
+            cve_obj = item.get("cve", {})
+            cve_id = cve_obj.get("id", "")
+            if not cve_id:
+                continue
+
+            cvss_score: float | None = None
+            severity: str | None = None
+            for key in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
+                m_list = cve_obj.get("metrics", {}).get(key, [])
+                if m_list:
+                    d = m_list[0].get("cvssData", {})
+                    cvss_score = d.get("baseScore")
+                    severity = d.get("baseSeverity")
+                    break
+
+            desc = next(
+                (d["value"] for d in cve_obj.get("descriptions", []) if d.get("lang") == "en"),
+                "",
+            )
+            results.append(
+                {
+                    "cve_id": cve_id,
+                    "cvss_score": cvss_score,
+                    "severity": severity,
+                    "description": desc[:200],
+                    "source": "cpe_match",
+                    "matched_cpe": cpe,
+                }
+            )
+
+        logger.info("NVD CPE %s → %d CVEs", cpe, len(results))
+        return results
+
+    except Exception as exc:
+        logger.warning("NVD CPE failed %s: %s", cpe, exc)
+        return []

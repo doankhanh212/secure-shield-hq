@@ -15,7 +15,6 @@ import {
   deleteDomain,
   getDomainReportDownloadUrl,
   getDomains,
-  type Domain,
 } from "@/services/api";
 
 function getRiskBarColor(score: number): string {
@@ -282,13 +281,11 @@ const AssetManagement = () => {
                       {/* Vulnerabilities — severity pills */}
                       <td className="px-4 py-3">
                         {(() => {
-                          const vc = d.vuln_counts ?? {
-                            critical: d.severity_counts?.critical ?? 0,
-                            high: d.severity_counts?.high ?? 0,
-                            medium: d.severity_counts?.medium ?? 0,
-                            low: d.severity_counts?.low ?? 0,
-                            total: d.total_vulnerabilities,
-                          };
+                          // null vuln_counts = never scanned
+                          if (!d.last_scan_id || d.vuln_counts === null || d.vuln_counts === undefined) {
+                            return <span className="text-xs text-muted-foreground">Chưa quét</span>;
+                          }
+                          const vc = d.vuln_counts;
                           const fp = d.false_positive_count ?? 0;
                           const hasVulns = vc.total > 0;
                           return (
@@ -319,7 +316,7 @@ const AssetManagement = () => {
                                 </span>
                               )}
                               {!hasVulns && (
-                                <span className="text-xs text-muted-foreground">Chưa có</span>
+                                <span className="text-xs text-muted-foreground">0 lỗ hổng</span>
                               )}
                             </div>
                           );
@@ -328,23 +325,27 @@ const AssetManagement = () => {
 
                       {/* Risk score */}
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-14 h-1.5 rounded-full bg-muted overflow-hidden">
-                            <div
-                              className={cn("h-full rounded-full transition-all", getRiskBarColor(d.risk_score))}
-                              style={{ width: `${d.risk_score}%` }}
-                            />
+                        {d.risk_score === null || d.risk_score === undefined ? (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <div className="w-14 h-1.5 rounded-full bg-muted overflow-hidden">
+                              <div
+                                className={cn("h-full rounded-full transition-all", getRiskBarColor(d.risk_score))}
+                                style={{ width: `${d.risk_score}%` }}
+                              />
+                            </div>
+                            <span className={cn("text-xs font-mono font-semibold", getRiskTextColor(d.risk_score))}>
+                              {d.risk_score.toFixed(0)}
+                            </span>
                           </div>
-                          <span className={cn("text-xs font-mono font-semibold", getRiskTextColor(d.risk_score))}>
-                            {d.risk_score.toFixed(0)}
-                          </span>
-                        </div>
+                        )}
                       </td>
 
                       {/* Actions: view vulns + export report */}
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          {d.total_vulnerabilities > 0 && (
+                          {d.last_scan_id && (
                             <button
                               className="flex items-center gap-1 text-xs text-cyan-500 hover:text-cyan-400 transition-colors"
                               onClick={() => void navigate(`/vulnerabilities?domain=${encodeURIComponent(d.domain)}`)}

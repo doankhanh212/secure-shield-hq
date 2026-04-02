@@ -39,6 +39,7 @@ class AssetDiscoveryOutput:
     technologies: list[str]
     dns_records: dict[str, DNSResolution]
     service_details: list[ServiceProbeResult]
+    wappalyzer_technologies: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -70,4 +71,5 @@ class AssetDiscoveryOutput:
                 }
                 for result in self.service_details
             ],
+            "wappalyzer_technologies": self.wappalyzer_technologies,
         }

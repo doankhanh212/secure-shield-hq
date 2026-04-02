@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import logging
 
 import dns.asyncresolver
 import httpx
@@ -12,6 +13,8 @@ from scanner.asset_discovery.models import AssetDiscoveryOutput, DNSResolution
 from scanner.asset_discovery.service_detector import detect_http_services
 from scanner.asset_discovery.subdomain_enum import discover_subdomains, extract_domain
 from scanner.asset_discovery.tech_fingerprint import detect_technologies
+
+logger = logging.getLogger(__name__)
 
 
 def _is_public_ip(value: str) -> bool:
@@ -48,6 +51,41 @@ async def _discover_assets_async(target: str) -> AssetDiscoveryOutput:
     service_results = await detect_http_services(hosts)
     technologies = sorted(detect_technologies(service_results))
 
+    # ── Wappalyzer multi-signal fingerprinting ─────────────────────────
+    from scanner.asset_discovery.wappalyzer_engine import fingerprint_response
+
+    wap_raw: list = []
+    for svc in service_results:
+        body = (
+            getattr(svc, "body", None)
+            or getattr(svc, "html", None)
+            or getattr(svc, "response_body", None)
+            or getattr(svc, "body_snippet", None)
+            or ""
+        )
+        hdrs = getattr(svc, "headers", {}) or {}
+        svc_url = getattr(svc, "url", None) or getattr(svc, "base_url", None) or ""
+        if body or hdrs:
+            try:
+                wap_raw.extend(fingerprint_response(svc_url, body, hdrs))
+            except Exception:
+                continue
+
+    # Deduplicate across subdomains: keep entry with version over one without
+    seen: dict[str, object] = {}
+    for t in wap_raw:
+        existing = seen.get(t.name)
+        if existing is None or (t.version and not existing.version):
+            seen[t.name] = t
+    wap_techs = list(seen.values())
+
+    logger.info(
+        "Wappalyzer unique: %d technologies (%d versioned, %d with CPE)",
+        len(wap_techs),
+        sum(1 for t in wap_techs if t.version),
+        sum(1 for t in wap_techs if t.cpe),
+    )
+
     service_labels = sorted(
         {
             result.scheme.upper()
@@ -64,6 +102,7 @@ async def _discover_assets_async(target: str) -> AssetDiscoveryOutput:
         technologies=technologies,
         dns_records=dns_map,
         service_details=service_results,
+        wappalyzer_technologies=[t.to_dict() for t in wap_techs],
     )
 
 

@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Báo Cáo Bảo Mật — https://vepo.vn/</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:14px;scroll-behavior:smooth}
+body{
+  background:#070b0f;color:#e8f4ff;
+  font-family:system-ui,-apple-system,'Segoe UI',sans-serif;
+  line-height:1.7;
+}
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:#070b0f}
+::-webkit-scrollbar-thumb{background:#2a4a70;border-radius:3px}
+
+/* Sidebar */
+.sidebar{
+  width:260px;background:#0d1520;border-right:1px solid #1e3352;
+  position:fixed;top:0;bottom:0;left:0;overflow-y:auto;
+  padding:20px 0;z-index:100;
+}
+.sidebar-logo{padding:0 18px 18px;border-bottom:1px solid #1e3352}
+.sidebar-title{
+  font-size:16px;font-weight:700;letter-spacing:2px;
+  color:#e8f4ff;text-transform:uppercase
+}
+.sidebar-sub{
+  font-size:10px;color:#4a6a90;letter-spacing:1.5px;
+  text-transform:uppercase;margin-top:3px
+}
+.toc-section{
+  font-size:10px;letter-spacing:2px;color:#4a6a90;
+  text-transform:uppercase;padding:14px 18px 4px
+}
+.toc-link{
+  display:block;padding:6px 18px;font-size:12px;
+  color:#8aa8cc;text-decoration:none;
+  border-left:2px solid transparent;transition:all .15s
+}
+.toc-link:hover{color:#00d4ff;border-left-color:#00d4ff;background:rgba(0,212,255,.04)}
+.toc-critical{color:#ff3e5e}
+.toc-high{color:#ff7b44}
+.toc-medium{color:#ffb800}
+.toc-low{color:#00ff9d}
+.toc-info{color:#00d4ff}
+
+/* Main content */
+.main{margin-left:260px;padding:44px 52px;max-width:1100px}
+
+/* Hero */
+.hero{margin-bottom:44px;padding-bottom:28px;border-bottom:1px solid #1e3352}
+.hero-label{
+  font-size:11px;letter-spacing:3px;color:#00d4ff;
+  text-transform:uppercase;margin-bottom:8px
+}
+.hero-title{
+  font-size:36px;font-weight:800;letter-spacing:.5px;line-height:1.1;
+  color:#e8f4ff;margin-bottom:6px
+}
+.hero-target{color:#00d4ff}
+.hero-meta{
+  display:flex;gap:24px;flex-wrap:wrap;margin-top:16px
+}
+.hero-meta-item{font-size:12px;color:#8aa8cc}
+.hero-meta-item strong{color:#e8f4ff}
+
+/* Score grid */
+.score-grid{
+  display:grid;grid-template-columns:repeat(5,1fr);
+  gap:12px;margin-bottom:40px
+}
+.score-card{
+  background:#111d2e;border:1px solid #1e3352;
+  border-radius:8px;padding:18px 14px;text-align:center
+}
+.score-val{
+  font-size:32px;font-weight:800;line-height:1;
+  letter-spacing:-1px
+}
+.score-lbl{
+  font-size:10px;letter-spacing:1.5px;color:#4a6a90;
+  margin-top:6px;text-transform:uppercase
+}
+
+/* Section */
+.section{margin-bottom:52px}
+.section-title{
+  font-size:20px;font-weight:700;letter-spacing:2px;
+  text-transform:uppercase;color:#e8f4ff;
+  padding-bottom:10px;border-bottom:1px solid #1e3352;
+  margin-bottom:22px
+}
+
+/* Finding block */
+.finding{
+  background:#111d2e;border:1px solid #1e3352;
+  border-radius:8px;margin-bottom:16px;overflow:hidden
+}
+.finding-header{
+  display:flex;align-items:center;gap:10px;
+  padding:13px 16px;cursor:pointer;user-select:none;
+  transition:background .15s
+}
+.finding-header:hover{background:#162338}
+.sev-badge{
+  font-size:10px;font-weight:700;letter-spacing:1.5px;
+  padding:3px 9px;border-radius:3px;
+  text-transform:uppercase;border:1px solid;flex-shrink:0
+}
+.finding-id{font-size:11px;color:#4a6a90;font-family:'SF Mono','Cascadia Code',Consolas,monospace}
+.finding-cwe{
+  font-size:11px;color:#8aa8cc;
+  font-family:'SF Mono','Cascadia Code',Consolas,monospace
+}
+.finding-cvss{
+  font-size:11px;background:#162338;
+  padding:2px 7px;border-radius:3px;color:#8aa8cc
+}
+.finding-name{font-size:14px;font-weight:600;color:#e8f4ff;flex:1}
+.finding-toggle{color:#4a6a90;font-size:16px;margin-left:auto;flex-shrink:0}
+
+.finding-body{padding:16px 18px;border-top:1px solid #1e3352}
+.field-label{
+  font-size:10px;letter-spacing:2px;color:#4a6a90;
+  text-transform:uppercase;margin-top:16px;margin-bottom:5px
+}
+.field-label:first-child{margin-top:0}
+.field-text{font-size:13px;color:#8aa8cc;line-height:1.75}
+.code-block{
+  background:#040810;border:1px solid #1e3352;border-radius:5px;
+  padding:12px 14px;font-family:'SF Mono','Cascadia Code',Consolas,monospace;
+  font-size:12px;line-height:1.75;overflow-x:auto;color:#8aa8cc;
+  white-space:pre-wrap;word-break:break-all
+}
+.code-inline{
+  background:#162338;padding:2px 6px;border-radius:4px;
+  font-family:'SF Mono','Cascadia Code',Consolas,monospace;
+  font-size:12px;color:#00d4ff
+}
+.fix-list{
+  list-style:none;margin:6px 0 0
+}
+.fix-list li{
+  padding:5px 0;font-size:13px;color:#8aa8cc;
+  display:flex;gap:8px;align-items:flex-start
+}
+.fix-list li::before{content:'›';color:#00d4ff;flex-shrink:0}
+.conf-badge{
+  display:inline-block;font-size:11px;padding:2px 9px;
+  border-radius:12px;margin-top:10px
+}
+.conf-confirmed{background:rgba(0,255,157,.12);color:#00ff9d;border:1px solid rgba(0,255,157,.3)}
+.conf-likely{background:rgba(0,212,255,.10);color:#00d4ff;border:1px solid rgba(0,212,255,.3)}
+.conf-potential{background:rgba(74,106,144,.15);color:#8aa8cc;border:1px solid #2a4a70}
+
+/* Group header */
+.group-eps{
+  margin-top:8px;padding:8px 12px;
+  background:#070b0f;border-radius:5px;
+  font-size:12px;color:#4a6a90
+}
+.group-eps span{
+  display:block;padding:2px 0;
+  font-family:'SF Mono','Cascadia Code',Consolas,monospace;font-size:11px
+}
+
+/* Callout */
+.callout{
+  border-radius:5px;padding:10px 14px;margin:12px 0;
+  font-size:13px;display:flex;gap:8px;align-items:flex-start;
+  border-left:3px solid
+}
+.callout-warn{
+  background:rgba(255,184,0,.06);border-color:#ffb800;color:#8aa8cc
+}
+.callout-info{
+  background:rgba(0,212,255,.05);border-color:#00d4ff;color:#8aa8cc
+}
+
+/* Table */
+.data-table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}
+.data-table th{
+  background:#162338;padding:9px 12px;text-align:left;
+  font-size:10px;letter-spacing:1.5px;color:#4a6a90;
+  text-transform:uppercase;border-bottom:1px solid #2a4a70;
+  white-space:nowrap
+}
+.data-table td{
+  padding:10px 12px;border-bottom:1px solid #1e3352;
+  color:#8aa8cc;vertical-align:top
+}
+.data-table tr:last-child td{border-bottom:none}
+.data-table tr:hover td{background:#162338;color:#e8f4ff}
+.data-table td.empty{color:#4a6a90;text-align:center;padding:24px}
+.kev-pill{
+  display:inline-block;background:rgba(255,62,94,.15);
+  color:#ff3e5e;border:1px solid rgba(255,62,94,.4);
+  font-size:10px;font-weight:700;letter-spacing:1px;
+  padding:2px 8px;border-radius:3px;text-transform:uppercase
+}
+
+/* Asset section */
+.metric-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+.metric-tile{
+  background:#111d2e;border:1px solid #1e3352;border-radius:8px;
+  padding:16px;text-align:center
+}
+.metric-tile-val{font-size:28px;font-weight:800;color:#00d4ff;line-height:1}
+.metric-tile-lbl{font-size:10px;color:#4a6a90;letter-spacing:1.5px;text-transform:uppercase;margin-top:5px}
+.tech-pills{display:flex;flex-wrap:wrap;gap:7px}
+.tech-pill{
+  background:#162338;border:1px solid #2a4a70;
+  color:#8aa8cc;font-size:12px;padding:3px 10px;border-radius:12px
+}
+
+/* Priority badges */
+.p0{color:#ff3e5e;font-weight:700}
+.p1{color:#ff7b44;font-weight:700}
+.p2{color:#ffb800;font-weight:700}
+.p3{color:#00ff9d}
+
+/* Attack Surface */
+.as-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:22px}
+.as-card{
+  background:#111d2e;border:1px solid #1e3352;border-radius:8px;padding:16px
+}
+.as-card-title{
+  font-size:10px;letter-spacing:2px;color:#4a6a90;
+  text-transform:uppercase;margin-bottom:10px
+}
+.as-ep-row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:6px 0;border-bottom:1px solid #1e335220;font-size:12px
+}
+.as-ep-url{color:#8aa8cc;font-family:'SF Mono',Consolas,monospace;word-break:break-all}
+.as-ep-score{color:#ff7b44;font-weight:700;flex-shrink:0;margin-left:8px}
+.as-entry-badge{
+  display:inline-block;font-size:10px;font-weight:700;
+  padding:2px 8px;border-radius:3px;letter-spacing:1px;
+  background:rgba(255,62,94,.12);color:#ff3e5e;border:1px solid rgba(255,62,94,.3)
+}
+
+/* Attack Paths */
+.ap-scenario{
+  background:#111d2e;border:1px solid #1e3352;border-radius:8px;
+  margin-bottom:16px;overflow:hidden
+}
+.ap-header{
+  display:flex;align-items:center;gap:10px;
+  padding:13px 16px;border-bottom:1px solid #1e3352
+}
+.ap-risk{
+  font-size:10px;font-weight:700;letter-spacing:1px;
+  padding:3px 9px;border-radius:3px;text-transform:uppercase
+}
+.ap-title{font-size:14px;font-weight:600;color:#e8f4ff;flex:1}
+.ap-body{padding:16px 18px}
+.ap-step{
+  display:flex;gap:12px;align-items:flex-start;
+  padding:8px 0;border-bottom:1px solid #1e335220
+}
+.ap-step:last-child{border-bottom:none}
+.ap-step-num{
+  background:#162338;border:1px solid #2a4a70;
+  color:#00d4ff;font-size:11px;font-weight:700;
+  width:24px;height:24px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0
+}
+.ap-step-detail{flex:1;font-size:13px;color:#8aa8cc}
+.ap-step-vuln{color:#e8f4ff;font-weight:600}
+.ap-step-finding{
+  font-size:11px;color:#4a6a90;
+  font-family:'SF Mono',Consolas,monospace
+}
+
+/* Footer */
+.footer{
+  text-align:center;font-size:11px;color:#4a6a90;
+  padding:28px 0;border-top:1px solid #1e3352;margin-top:44px
+}
+
+/* Anchor offset for fixed sidebar */
+.anchor{display:block;position:relative;top:-24px;visibility:hidden}
+
+</style>
+</head>
+<body>
+<nav class="sidebar"><div class="sidebar-logo"><div class="sidebar-title">🛡 HQG Security</div><div class="sidebar-sub">Security Assessment Report</div></div><div class="toc-section">Tổng Quan</div><a class="toc-link toc-info" href="#overview">Dashboard</a><a class="toc-link toc-info" href="#findings">Lỗ Hổng Bảo Mật</a><a class="toc-link toc-info" href="#cve">CVE Intelligence</a><a class="toc-link toc-info" href="#attack-surface">Bề Mặt Tấn Công</a><a class="toc-link toc-info" href="#attack-paths">Kịch Bản Tấn Công</a><a class="toc-link toc-info" href="#assets">Tài Sản</a><a class="toc-link toc-info" href="#roadmap">Lộ Trình Khắc Phục</a><div class="toc-section">Critical (12)</div><a class="toc-link toc-critical" href="#f-3fb1ae7f">3fb1ae7f · Sqli</a><a class="toc-link toc-critical" href="#f-2801a428">2801a428 · Sqli</a><a class="toc-link toc-critical" href="#f-0181c031">0181c031 · Sqli</a><a class="toc-link toc-critical" href="#f-2a3bd9c0">2a3bd9c0 · Sqli</a><a class="toc-link toc-critical" href="#f-841ec2e6">841ec2e6 · Sqli</a><a class="toc-link toc-critical" href="#f-e440525b">e440525b · Sqli</a><a class="toc-link toc-critical" href="#f-a7dd3623">a7dd3623 · Sqli</a><a class="toc-link toc-critical" href="#f-59d4b625">59d4b625 · Sqli</a><div class="toc-section">High (8)</div><a class="toc-link toc-high" href="#f-c07c4904">c07c4904 · Ssrf</a><a class="toc-link toc-high" href="#f-5b5cd257">5b5cd257 · Ssrf</a><a class="toc-link toc-high" href="#f-457d57e0">457d57e0 · Ssrf</a><a class="toc-link toc-high" href="#f-29f14114">29f14114 · Ssrf</a><a class="toc-link toc-high" href="#f-7dabc7a2">7dabc7a2 · Ssrf</a><a class="toc-link toc-high" href="#f-229f6665">229f6665 · Ssrf</a><a class="toc-link toc-high" href="#f-b405f63b">b405f63b · Ssrf</a><a class="toc-link toc-high" href="#f-c62f413c">c62f413c · Time Based Sqli</a><div class="toc-section">Medium (328)</div><a class="toc-link toc-medium" href="#f-4f066cf0">4f066cf0 · Info Disclosure</a><a class="toc-link toc-medium" href="#f-368e0e12">368e0e12 · Info Disclosure</a><a class="toc-link toc-medium" href="#f-8e641484">8e641484 · Info Disclosure</a><a class="toc-link toc-medium" href="#f-51e0b5de">51e0b5de · Info Disclosure</a><a class="toc-link toc-medium" href="#f-30d72756">30d72756 · Info Disclosure</a><a class="toc-link toc-medium" href="#f-82bbf167">82bbf167 · Info Disclosure</a><a class="toc-link toc-medium" href="#f-2eb9ebca">2eb9ebca · Info Disclosure</a><a class="toc-link toc-medium" href="#f-933ff550">933ff550 · Info Disclosure</a></nav><main class="main"><div class="hero"><div class="hero-label">Báo Cáo Phân Tích Bảo Mật</div><div class="hero-title">Phân Tích Bề Mặt Tấn Công<br><span class="hero-target">https://vepo.vn/</span></div><div class="hero-meta"><div class="hero-meta-item"><strong>Chế độ quét:</strong> Standard</div><div class="hero-meta-item"><strong>Ngày quét:</strong> 2026-04-01</div><div class="hero-meta-item"><strong>Thời lượng:</strong> 8m 42s</div><div class="hero-meta-item"><strong>Phiên bản:</strong> 1.0.0</div><div class="hero-meta-item"><strong>Endpoints:</strong> 298</div><div class="hero-meta-item"><strong>Công nghệ:</strong> 0</div></div></div><a class="anchor" id="overview"></a><div class="score-grid"><div class="score-card" style="border-color:#ff3e5e40"><div class="score-val" style="color:#ff3e5e">0.0/100</div><div class="score-lbl">Điểm Rủi Ro</div></div><div class="score-card" style="border-color:#ff3e5e40"><div class="score-val" style="color:#ff3e5e">12</div><div class="score-lbl">Critical</div></div><div class="score-card" style="border-color:#ff7b4440"><div class="score-val" style="color:#ff7b44">8</div><div class="score-lbl">High</div></div><div class="score-card" style="border-color:#ffb80040"><div class="score-val" style="color:#ffb800">328</div><div class="score-lbl">Medium</div></div><div class="score-card" style="border-color:#00ff9d40"><div class="score-val" style="color:#00ff9d">0</div><div class="score-lbl">Low</div></div></div><a class="anchor" id="findings"></a><div class="section"><div class="section-title">Lỗ Hổng Bảo Mật</div><div class="finding" id="f-3fb1ae7f"><div class="finding-header" onclick="toggleDetail('detail-0')"><span class="sev-badge" style="color:#ff3e5e;background:rgba(255,62,94,0.15);border-color:#ff3e5e40">Critical</span><span class="finding-id">3fb1ae7f</span><span class="finding-cwe">CWE-89</span><span class="finding-cwe">A03:2021-Injection</span><span class="finding-cvss">CVSS 9.8</span><span class="finding-name">Sqli <span style="color:#4a6a90;font-size:12px">(12 endpoints)</span></span><span class="finding-toggle">▼</span></div><div class="finding-body" id="detail-0" style="display:block"><div class="field-label">Endpoints Bị Ảnh Hưởng</div><div class="group-eps"><span>https://api.vepo.vn/ha-tinh-nang-tam-nong-san-chu-luc</span><span>https://api.vepo.vn/san-pham</span><span>https://blog.vepo.vn/cau-chuyen-san-pham-ruou-tinh-can-loc</span><span>https://cdn.vepo.vn/</span><span>https://dev.vepo.vn/dua-luoi-ngoc-khue</span><span>https://m.vepo.vn/ket-noi-thi-truong-tieu-thu-cho-san-pham-ocop-ha-tinh</span><span>https://m.vepo.vn/tin-tuc-0</span><span>https://ns2.vepo.vn/</span><span>https://smtp.vepo.vn/</span><span>https://static.vepo.vn/du-lich-ha-tinh</span><span>https://static.vepo.vn/dua-luoi-ngoc-khue</span><span>https://static.vepo.vn/sua-lien-ky-khang</span></div><div class="field-label">Mô Tả</div><div class="field-text">Phát hiện lỗ hổng SQL Injection tại endpoint https://api.vepo.vn/ha-tinh-nang-tam-nong-san-chu-luc. Khi gửi payload `1 UNION SELECT NULL--` vào tham số &#x27;N/A&#x27;, ứng dụng trả về thông báo lỗi SQL rõ ràng, cho thấy dữ liệu đầu vào được nhúng trực tiếp vào câu truy vấn mà không qua xử lý. Bằng chứng thu được: &#x27;https://api.vepo.vn/ha-tinh-nang-tam-nong-san-chu-luc?id=1+UNION+SELECT+NULL--&#x27;,&#x27;82dtZm2p5Q&#x27;,true,false,&#x27;nC3GeVT5Xdc&#x27;);.</div><div class="field-label">Tác Động</div><div class="field-text">Kẻ tấn công có thể đọc, sửa hoặc xóa toàn bộ dữ liệu trong cơ sở dữ liệu, bao gồm thông tin tài khoản người dùng, dữ liệu kinh doanh và dữ liệu khách hàng. Trong trường hợp nghiêm trọng, attacker có thể thực thi lệnh hệ thống thông qua stored procedure.</div><div class="field-label">Payload Mẫu</div><div class="field-text"><code class="code-inline">1 UNION SELECT NULL--</code></div><div class="field-label">Tham Số</div><div class="field-text"><code class="code-inline">—</code></div><div class="field-label">Khắc Phục</div><ol class="fix-list"><li>Sử dụng Prepared Statements (Parameterized Queries) cho mọi câu truy vấn SQL — không bao giờ nối chuỗi trực tiếp input người dùng vào SQL.</li><li>Áp dụng ORM (SQLAlchemy, Hibernate) thay vì raw SQL để giảm surface attack.</li><li>Validate và whitelist kiểu dữ liệu cho tham số &#x27;N/A&#x27;: nếu là số nguyên thì parse int và reject nếu không hợp lệ.</li></ol><span class="conf-badge conf-likely">Có khả năng</span></div></div><div class="finding" id="f-c07c4904"><div class="finding-header" onclick="toggleDetail('detail-1')"><span class="sev-badge" style="color:#ff7b44;background:rgba(255,123,68,0.15);border-color:#ff7b4440">High</span><span class="finding-id">c07c4904</span><span class="finding-cwe">CWE-918</span><span class="finding-cwe">A10:2021-SSRF</span><span class="finding-cvss">CVSS 8.6</span><span class="finding-name">Ssrf <span style="color:#4a6a90;font-size:12px">(7 endpoints)</span></span><span class="finding-toggle">▼</span></div><div class="finding-body" id="detail-1" style="display:block"><div class="field-label">Endpoints Bị Ảnh Hưởng</div><div class="group-eps"><span>https://api.vepo.vn/banh-da-bon-xuan-dam-da-huong-vi-ha-tinh</span><span>https://app.vepo.vn/chai-500-ml-4</span><span>https://beta.vepo.vn/dua-luoi-ngoc-khue</span><span>https://dev.vepo.vn/ha-tinh-nang-tam-nong-san-chu-luc</span><span>https://portal.vepo.vn/</span><span>https://static.vepo.vn/chai-500-ml-4</span><span>https://static.vepo.vn/den-le-khoi</span></div><div class="field-label">Mô Tả</div><div class="field-text">Phát hiện lỗ hổng Server-Side Request Forgery (SSRF) tại endpoint https://api.vepo.vn/banh-da-bon-xuan-dam-da-huong-vi-ha-tinh. Payload `http://metadata.google.internal/computeMetadata/v1/` khiến server thực hiện request đến địa chỉ nội bộ hoặc dịch vụ metadata cloud. Bằng chứng trong response: n-dam-da-huong-vi-ha-tinh?form_build_id=http%3A%2F%2Fmetadata.google.internal%2FcomputeMetadata%2Fv1%2F&amp;form_id=http%3A%. Attacker có thể dùng vector này để truy cập mạng nội bộ và cloud metadata service.</div><div class="field-label">Tác Động</div><div class="field-text">Kẻ tấn công có thể sử dụng server làm proxy để truy cập mạng nội bộ, đọc cloud metadata (IAM credentials, instance info) và tấn công các service không expose ra internet. Trong môi trường cloud, SSRF thường dẫn đến leo thang đặc quyền hoàn toàn.</div><div class="field-label">Payload Mẫu</div><div class="field-text"><code class="code-inline">http://metadata.google.internal/computeMetadata/v1/</code></div><div class="field-label">Tham Số</div><div class="field-text"><code class="code-inline">—</code></div><div class="field-label">Khắc Phục</div><ol class="fix-list"><li>Validate URL đầu vào chống SSRF: block các IP private (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), loopback (127.0.0.0/8) và metadata IP (169.254.169.254).</li><li>Sử dụng allowlist domain thay vì denylist — chỉ cho phép fetch từ domain đã xác định.</li><li>Tắt cloud metadata endpoint hoặc yêu cầu IMDSv2 (với AWS) để giảm rủi ro khi bị SSRF.</li></ol><span class="conf-badge conf-likely">Có khả năng</span></div></div><div class="finding" id="f-c62f413c"><div class="finding-header" onclick="toggleDetail('detail-2')"><span class="sev-badge" style="color:#ff7b44;background:rgba(255,123,68,0.15);border-color:#ff7b4440">High</span><span class="finding-id">c62f413c</span><span class="finding-cwe">CWE-89</span><span class="finding-cwe">A03:2021-Injection</span><span class="finding-cvss">CVSS 7.5</span><span class="finding-name">Time Based Sqli</span><span class="finding-toggle">▼</span></div><div class="finding-body" id="detail-2" style="display:block"><div class="field-label">Mô Tả</div><div class="field-text">Phát hiện lỗ hổng SQL Injection dạng Time-Based tại endpoint https://admin.vepo.vn/. Khi inject payload `&#x27; OR 1=1--` vào tham số &#x27;op&#x27;, thời gian phản hồi của server tăng bất thường so với baseline, cho thấy payload được thực thi trong câu truy vấn SQL (Response time: 5.63s | Baseline: 3.05s | Delta: 2.58s).</div><div class="field-label">Tác Động</div><div class="field-text">Attacker có thể khai thác lỗ hổng này để trích xuất dữ liệu từng bit một (blind extraction), mặc dù chậm hơn error-based SQLi nhưng vẫn đủ để đánh cắp thông tin nhạy cảm hoàn toàn.</div><div class="field-label">Evidence</div><div class="code-block">Response time: 5.63s | Baseline: 3.05s | Delta: 2.58s</div><div class="field-label">Payload</div><div class="field-text"><code class="code-inline">&#x27; OR 1=1--</code></div><div class="field-label">Endpoint</div><div class="field-text">https://admin.vepo.vn/</div><div class="field-label">Tham Số</div><div class="field-text"><code class="code-inline">op</code></div><div class="field-label">Khắc Phục</div><ol class="fix-list"><li>Sử dụng Prepared Statements — đây là fix dứt điểm duy nhất cho time-based SQLi.</li><li>Thiết lập statement timeout ở cấp database để giới hạn thời gian thực thi query.</li><li>Monitor query execution time và alert khi vượt ngưỡng bất thường (&gt;2 giây).</li></ol><span class="conf-badge conf-potential">Tiềm năng</span><div class="callout callout-warn"><span>⚠</span><span>Khả năng false positive cao (60%). Nên xác minh thủ công trước khi xử lý.</span></div></div></div><div class="finding" id="f-4a4771b5"><div class="finding-header" onclick="toggleDetail('detail-3')"><span class="sev-badge" style="color:#ffb800;background:rgba(255,184,0,0.15);border-color:#ffb80040">Medium</span><span class="finding-id">4a4771b5</span><span class="finding-cwe">CWE-79</span><span class="finding-cwe">A03:2021-Injection</span><span class="finding-cvss">CVSS 6.1</span><span class="finding-name">Xss <span style="color:#4a6a90;font-size:12px">(30 endpoints)</span></span><span class="finding-toggle">▶</span></div><div class="finding-body" id="detail-3" style="display:none"><div class="field-label">Endpoints Bị Ảnh Hưởng</div><div class="group-eps"><span>https://admin.vepo.vn/ocop</span><span>https://admin.vepo.vn/san-pham</span><span>https://api.vepo.vn/dua-luoi-ngoc-khue</span><span>https://api.vepo.vn/nuoc-mam-thu-hung-0</span><span>https://api.vepo.vn/ocop</span><span>https://api.vepo.vn/thung-carton</span><span>https://app.vepo.vn/lien-he</span><span>https://auth.vepo.vn/</span><span>https://beta.vepo.vn/cam-gion-xuan-hoa-thuong-loc</span><span>https://beta.vepo.vn/chai-500-ml-4</span><span>https://blog.vepo.vn/</span><span>https://blog.vepo.vn/san-pham</span><span>https://blog.vepo.vn/vo-hop</span><span>https://cdn.vepo.vn/</span><span>https://dev.vepo.vn/cau-chuyen-san-pham-ruou-tinh-can-loc</span><span>https://dev.vepo.vn/chai-500-ml-4</span><span>https://files.vepo.vn/</span><span>https://files.vepo.vn/tin-tuc-0</span><span>https://gateway.vepo.vn/chai-500-ml-4</span><span>https://gateway.vepo.vn/phien-cho-quang-ba-san-pham-cong-nghiep-nong-thon-tieu-bieu-va-san-pham-ocop-ha-tinh</span><span>https://internal.vepo.vn/</span><span>https://static.vepo.vn/</span><span>https://static.vepo.vn/dua-luoi-ngoc-khue</span><span>https://static.vepo.vn/khach-san-vinpearl-ha-tinh</span><span>https://static.vepo.vn/san-pham</span><span>https://status.vepo.vn/sitemap.xml</span><span>https://test.vepo.vn/</span><span>https://uat.vepo.vn/</span><span>https://uat.vepo.vn/sitemap.xml</span><span>https://vpn.vepo.vn/</span></div><div class="field-label">Mô Tả</div><div class="field-text">Phát hiện lỗ hổng Cross-Site Scripting (XSS) phản chiếu tại endpoint https://admin.vepo.vn/ocop. Payload `&lt;svg/onload=alert(1)&gt;` được inject vào tham số &#x27;N/A&#x27; và xuất hiện nguyên vẹn trong HTML response, cho phép attacker thực thi mã JavaScript tùy ý trong trình duyệt của nạn nhân. Phương pháp phát hiện: template.</div><div class="field-label">Tác Động</div><div class="field-text">Kẻ tấn công có thể đánh cắp session cookie, thực thi hành động thay mặt người dùng và redirect nạn nhân đến trang giả mạo. Trong môi trường doanh nghiệp, XSS có thể dẫn đến chiếm quyền tài khoản admin.</div><div class="field-label">Payload Mẫu</div><div class="field-text"><code class="code-inline">&lt;svg/onload=alert(1)&gt;</code></div><div class="field-label">Tham Số</div><div class="field-text"><code class="code-inline">—</code></div><div class="field-label">Khắc Phục</div><ol class="fix-list"><li>Escape HTML entities cho mọi output động: dùng html.escape() (Python), htmlspecialchars() (PHP), hoặc thư viện tương đương theo ngôn ngữ backend.</li><li>Thiết lập Content Security Policy (CSP) header nghiêm ngặt: `Content-Security-Policy: default-src &#x27;self&#x27;; script-src &#x27;self&#x27;`.</li><li>Validate và sanitize input tham số &#x27;N/A&#x27; ở cả client và server side, từ chối các ký tự `&lt;`, `&gt;`, `&quot;`, `&#x27;` nếu không cần thiết.</li></ol><span class="conf-badge conf-likely">Có khả năng</span></div></div><div class="finding" id="f-4f066cf0"><div class="finding-header" onclick="toggleDetail('detail-4')"><span class="sev-badge" style="color:#ffb800;background:rgba(255,184,0,0.15);border-color:#ffb80040">Medium</span><span class="finding-id">4f066cf0</span><span class="finding-cwe">CWE-200</span><span class="finding-cwe">A05:2021-Security Misconfiguration</span><span class="finding-cvss">CVSS 5.3</span><span class="finding-name">Info Disclosure <span style="color:#4a6a90;font-size:12px">(298 endpoints)</span></span><span class="finding-toggle">▶</span></div><div class="finding-body" id="detail-4" style="display:none"><div class="field-label">Endpoints Bị Ảnh Hưởng</div><div class="group-eps"><span>https://admin.vepo.vn/</span><span>https://admin.vepo.vn/a</span><span>https://admin.vepo.vn/banh-da-bon-xuan-dam-da-huong-vi-ha-tinh</span><span>https://admin.vepo.vn/cam-gion-xuan-hoa-thuong-loc</span><span>https://admin.vepo.vn/cau-chuyen-san-pham-ruou-tinh-can-loc</span><span>https://admin.vepo.vn/chai-500-ml-4</span><span>https://admin.vepo.vn/chuong-trinh-ocop-don-bay-phat-trien-kinh-te-nong-thon</span><span>https://admin.vepo.vn/cua-hang-san-pham-ocop-thu-2-tai-can-loc-di-vao-hoat-dong</span><span>https://admin.vepo.vn/dua-luoi-ngoc-khue</span><span>https://admin.vepo.vn/ha-tinh-nang-tam-nong-san-chu-luc</span><span>https://admin.vepo.vn/ket-noi-thi-truong-tieu-thu-cho-san-pham-ocop-ha-tinh</span><span>https://admin.vepo.vn/lien-he</span><span>https://admin.vepo.vn/nuoc-mam-thu-hung-0</span><span>https://admin.vepo.vn/ocop</span><span>https://admin.vepo.vn/phien-cho-quang-ba-san-pham-cong-nghiep-nong-thon-tieu-bieu-va-san-pham-ocop-ha-tinh</span><span>https://admin.vepo.vn/quang-ba-nong-san-san-pham-ocop-ha-tinh-tai-thi-truong-ha-noi</span><span>https://admin.vepo.vn/ruoc-kem-huong-xuan</span><span>https://admin.vepo.vn/san-pham</span><span>https://admin.vepo.vn/sitemap.xml</span><span>https://admin.vepo.vn/thung-carton</span><span>https://admin.vepo.vn/tin-tuc-0</span><span>https://admin.vepo.vn/vo-hop</span><span>https://api.vepo.vn/</span><span>https://api.vepo.vn/a</span><span>https://api.vepo.vn/banh-da-bon-xuan-dam-da-huong-vi-ha-tinh</span><span>https://api.vepo.vn/cam-gion-xuan-hoa-thuong-loc</span><span>https://api.vepo.vn/cau-chuyen-san-pham-ruou-tinh-can-loc</span><span>https://api.vepo.vn/chai-500-ml-4</span><span>https://api.vepo.vn/chuong-trinh-ocop-don-bay-phat-trien-kinh-te-nong-thon</span><span>https://api.vepo.vn/cua-hang-san-pham-ocop-thu-2-tai-can-loc-di-vao-hoat-dong</span><span>https://api.vepo.vn/dua-luoi-ngoc-khue</span><span>https://api.vepo.vn/ha-tinh-nang-tam-nong-san-chu-luc</span><span>https://api.vepo.vn/ket-noi-thi-truong-tieu-thu-cho-san-pham-ocop-ha-tinh</span><span>https://api.vepo.vn/lien-he</span><span>https://api.vepo.vn/nuoc-mam-thu-hung-0</span><span>https://api.vepo.vn/ocop</span><span>https://api.vepo.vn/phien-cho-quang-ba-san-pham-cong-nghiep-nong-thon-tieu-bieu-va-san-pham-ocop-ha-tinh</span><span>https://api.vepo.vn/quang-ba-nong-san-san-pham-ocop-ha-tinh-tai-thi-truong-ha-noi</span><span>https://api.vepo.vn/ruoc-kem-huong-xuan</span><span>https://api.vepo.vn/san-pham</span><span>https://api.vepo.vn/sitemap.xml</span><span>https://api.vepo.vn/thung-carton</span><span>https://api.vepo.vn/tin-tuc-0</span><span>https://api.vepo.vn/vo-hop</span><span>https://app.vepo.vn/</span><span>https://app.vepo.vn/a</span><span>https://app.vepo.vn/banh-da-bon-xuan-dam-da-huong-vi-ha-tinh</span><span>https://app.vepo.vn/cam-gion-xuan-hoa-thuong-loc</span><span>https://app.vepo.vn/cau-chuyen-san-pham-ruou-tinh-can-loc</span><span>https://app.vepo.vn/chai-500-ml-4</span><span>https://app.vepo.vn/chuong-trinh-ocop-don-bay-phat-trien-kinh-te-nong-thon</span><span>https://app.vepo.vn/cua-hang-san-pham-ocop-thu-2-tai-can-loc-di-vao-hoat-dong</span><span>https://app.vepo.vn/dua-luoi-ngoc-khue</span><span>https://app.vepo.vn/ha-tinh-nang-tam-nong-san-chu-luc</span><span>https://app.vepo.vn/ket-noi-thi-truong-tieu-thu-cho-san-pham-ocop-ha-tinh</span><span>https://app.vepo.vn/lien-he</span><span>https://app.vepo.vn/nuoc-mam-thu-hung-0</span><span>https://app.vepo.vn/ocop</span><span>https://app.vepo.vn/phien-cho-quang-ba-san-pham-cong-nghiep-nong-thon-tieu-bieu-va-san-pham-ocop-ha-tinh</span><span>https://app.vepo.vn/quang-ba-nong-san-san-pham-ocop-ha-tinh-tai-thi-truong-ha-noi</span><span>https://app.vepo.vn/ruoc-kem-huong-xuan</span><span>https://app.vepo.vn/san-pham</span><span>https://app.vepo.vn/sitemap.xml</span><span>https://app.vepo.vn/thung-carton</span><span>https://app.vepo.vn/tin-tuc-0</span><span>https://app.vepo.vn/vo-hop</span><span>https://assets.vepo.vn/</span><span>https://assets.vepo.vn/sitemap.xml</span><span>https://auth.vepo.vn/</span><span>https://auth.vepo.vn/sitemap.xml</span><span>https://beta.vepo.vn/</span><span>https://beta.vepo.vn/a</span><span>https://beta.vepo.vn/banh-da-bon-xuan-dam-da-huong-vi-ha-tinh</span><span>https://beta.vepo.vn/cam-gion-xuan-hoa-thuong-loc</span><span>https://beta.vepo.vn/cau-chuyen-san-pham-ruou-tinh-can-loc</span><span>https://beta.vepo.vn/chai-500-ml-4</span><span>https://beta.vepo.vn/chuong-trinh-ocop-don-bay-phat-trien-kinh-te-nong-thon</span><span>https://beta.vepo.vn/cua-hang-san-pham-ocop-thu-2-tai-can-loc-di-vao-hoat-dong</span><span>https://beta.vepo.vn/dua-luoi-ngoc-khue</span><span>https://beta.vepo.vn/ha-tinh-nang-tam-nong-san-chu-luc</span><span>https://beta.vepo.vn/ket-noi-thi-truong-tieu-thu-cho-san-pham-ocop-ha-tinh</span><span>https://beta.vepo.vn/lien-he</span><span>https://beta.vepo.vn/nuoc-mam-thu-hung-0</span><span>https://beta.vepo.vn/ocop</span><span>https://beta.vepo.vn/phien-cho-quang-ba-san-pham-cong-nghiep-nong-thon-tieu-bieu-va-san-pham-ocop-ha-tinh</span><span>https://beta.vepo.vn/quang-ba-nong-san-san-pham-ocop-ha-tinh-tai-thi-truong-ha-noi</span><span>https://beta.vepo.vn/ruoc-kem-huong-xuan</span><span>https://beta.vepo.vn/san-pham</span><span>https://beta.vepo.vn/sitemap.xml</span><span>https://beta.vepo.vn/thung-carton</span><span>https://beta.vepo.vn/tin-tuc-0</span><span>https://beta.vepo.vn/vo-hop</span><span>https://blog.vepo.vn/</span><span>https://blog.vepo.vn/a</span><span>https://blog.vepo.vn/banh-da-bon-xuan-dam-da-huong-vi-ha-tinh</span><span>https://blog.vepo.vn/cam-gion-xuan-hoa-thuong-loc</span><span>https://blog.vepo.vn/cau-chuyen-san-pham-ruou-tinh-can-loc</span><span>https://blog.vepo.vn/chai-500-ml-4</span><span>https://blog.vepo.vn/chuong-trinh-ocop-don-bay-phat-trien-kinh-te-nong-thon</span><span>https://blog.vepo.vn/cua-hang-san-pham-ocop-thu-2-tai-can-loc-di-vao-hoat-dong</span><span>https://blog.vepo.vn/dua-luoi-ngoc-khue</span><span>https://blog.vepo.vn/ha-tinh-nang-tam-nong-san-chu-luc</span><span>https://blog.vepo.vn/ket-noi-thi-truong-tieu-thu-cho-san-pham-ocop-ha-tinh</span><span>https://blog.vepo.vn/lien-he</span><span>https://blog.vepo.vn/nuoc-mam-thu-hung-0</span><span>https://blog.vepo.vn/ocop</span><span>https://blog.vepo.vn/phien-cho-quang-ba-san-pham-cong-nghiep-nong-thon-tieu-bieu-va-san-pham-ocop-ha-tinh</span><span>https://blog.vepo.vn/quang-ba-nong-san-san-pham-ocop-ha-tinh-tai-thi-truong-ha-noi</span><span>https://blog.vepo.vn/ruoc-kem-huong-xuan</span><span>https://blog.vepo.vn/san-pham</span><span>https://blog.vepo.vn/sitemap.xml</span><span>https://blog.vepo.vn/thung-carton</span><span>https://blog.vepo.vn/tin-tuc-0</span><span>https://blog.vepo.vn/vo-hop</span><span>https://cdn.vepo.vn/</span><span>https://cdn.vepo.vn/sitemap.xml</span><span>https://dev.vepo.vn/</span><span>https://dev.vepo.vn/a</span><span>https://dev.vepo.vn/cam-gion-xuan-hoa-thuong-loc</span><span>https://dev.vepo.vn/cau-chuyen-san-pham-ruou-tinh-can-loc</span><span>https://dev.vepo.vn/chai-500-ml-4</span><span>https://dev.vepo.vn/chuong-trinh-ocop-don-bay-phat-trien-kinh-te-nong-thon</span><span>https://dev.vepo.vn/cua-hang-san-pham-ocop-thu-2-tai-can-loc-di-vao-hoat-dong</span><span>https://dev.vepo.vn/dua-luoi-ngoc-khue</span><span>https://dev.vepo.vn/ha-tinh-nang-tam-nong-san-chu-luc</span><span>https://dev.vepo.vn/ket-noi-thi-truong-tieu-thu-cho-san-pham-ocop-ha-tinh</span><span>https://dev.vepo.vn/lien-he</span><span>https://dev.vepo.vn/nuoc-mam-thu-hung-0</span><span>https://dev.vepo.vn/ocop</span><span>https://dev.vepo.vn/phien-cho-quang-ba-san-pham-cong-nghiep-nong-thon-tieu-bieu-va-san-pham-ocop-ha-tinh</span><span>https://dev.vepo.vn/quang-ba-nong-san-san-pham-ocop-ha-tinh-tai-thi-truong-ha-noi</span><span>https://dev.vepo.vn/ruoc-kem-huong-xuan</span><span>https://dev.vepo.vn/san-pham</span><span>https://dev.vepo.vn/sitemap.xml</span><span>https://dev.vepo.vn/thung-carton</span><span>https://dev.vepo.vn/tin-tuc-0</span><span>https://dev.vepo.vn/vo-hop</span><span>https://files.vepo.vn/</span><span>https://files.vepo.vn/a</span><span>https://files.vepo.vn/cau-chuyen-san-pham-ruou-tinh-can-loc</span><span>https://files.vepo.vn/chai-500-ml-4</span><span>https://files.vepo.vn/chuong-trinh-ocop-don-bay-phat-trien-kinh-te-nong-thon</span><span>https://files.vepo.vn/cua-hang-san-pham-ocop-thu-2-tai-can-loc-di-vao-hoat-dong</span><span>https://files.vepo.vn/ha-tinh-nang-tam-nong-san-chu-luc</span><span>https://files.vepo.vn/ket-noi-thi-truong-tieu-thu-cho-san-pham-ocop-ha-tinh</span><span>https://files.vepo.vn/lien-he</span><span>https://files.vepo.vn/ocop</span><span>https://files.vepo.vn/phien-cho-quang-ba-san-pham-cong-nghiep-nong-thon-tieu-bieu-va-san-pham-ocop-ha-tinh</span><span>https://files.vepo.vn/quang-ba-nong-san-san-pham-ocop-ha-tinh-tai-thi-truong-ha-noi</span><span>https://files.vepo.vn/san-pham</span><span>https://files.vepo.vn/sitemap.xml</span><span>https://files.vepo.vn/thung-carton</span><span>https://files.vepo.vn/tin-tuc-0</span><span>https://files.vepo.vn/vo-hop</span><span>https://gateway.vepo.vn/</span><span>https://gateway.vepo.vn/a</span><span>https://gateway.vepo.vn/banh-da-bon-xuan-dam-da-huong-vi-ha-tinh</span><span>https://gateway.vepo.vn/cam-gion-xuan-hoa-thuong-loc</span><span>https://gateway.vepo.vn/cau-chuyen-san-pham-ruou-tinh-can-loc</span><span>https://gateway.vepo.vn/chai-500-ml-4</span><span>https://gateway.vepo.vn/chuong-trinh-ocop-don-bay-phat-trien-kinh-te-nong-thon</span><span>https://gateway.vepo.vn/cua-hang-san-pham-ocop-thu-2-tai-can-loc-di-vao-hoat-dong</span><span>https://gateway.vepo.vn/dua-luoi-ngoc-khue</span><span>https://gateway.vepo.vn/ha-tinh-nang-tam-nong-san-chu-luc</span><span>https://gateway.vepo.vn/ket-noi-thi-truong-tieu-thu-cho-san-pham-ocop-ha-tinh</span><span>https://gateway.vepo.vn/lien-he</span><span>https://gateway.vepo.vn/nuoc-mam-thu-hung-0</span><span>https://gateway.vepo.vn/ocop</span><span>https://gateway.vepo.vn/phien-cho-quang-ba-san-pham-cong-nghiep-nong-thon-tieu-bieu-va-san-pham-ocop-ha-tinh</span><span>https://gateway.vepo.vn/quang-ba-nong-san-san-pham-ocop-ha-tinh-tai-thi-truong-ha-noi</span><span>https://gateway.vepo.vn/ruoc-kem-huong-xuan</span><span>https://gateway.vepo.vn/san-pham</span><span>https://gateway.vepo.vn/sitemap.xml</span><span>https://gateway.vepo.vn/thung-carton</span><span>https://gateway.vepo.vn/tin-tuc-0</span><span>https://gateway.vepo.vn/vo-hop</span><span>https://internal.vepo.vn/</span><span>https://internal.vepo.vn/sitemap.xml</span><span>https://m.vepo.vn/</span><span>https://m.vepo.vn/a</span><span>https://m.vepo.vn/banh-da-bon-xuan-dam-da-huong-vi-ha-tinh</span><span>https://m.vepo.vn/cam-gion-xuan-hoa-thuong-loc</span><span>https://m.vepo.vn/cau-chuyen-san-pham-ruou-tinh-can-loc</span><span>https://m.vepo.vn/chai-500-ml-4</span><span>https://m.vepo.vn/chuong-trinh-ocop-don-bay-phat-trien-kinh-te-nong-thon</span><span>https://m.vepo.vn/cua-hang-san-pham-ocop-thu-2-tai-can-loc-di-vao-hoat-dong</span><span>https://m.vepo.vn/dua-luoi-ngoc-khue</span><span>https://m.vepo.vn/ha-tinh-nang-tam-nong-san-chu-luc</span><span>https://m.vepo.vn/ket-noi-thi-truong-tieu-thu-cho-san-pham-ocop-ha-tinh</span><span>https://m.vepo.vn/lien-he</span><span>https://m.vepo.vn/nuoc-mam-thu-hung-0</span><span>https://m.vepo.vn/ocop</span><span>https://m.vepo.vn/phien-cho-quang-ba-san-pham-cong-nghiep-nong-thon-tieu-bieu-va-san-pham-ocop-ha-tinh</span><span>https://m.vepo.vn/quang-ba-nong-san-san-pham-ocop-ha-tinh-tai-thi-truong-ha-noi</span><span>https://m.vepo.vn/ruoc-kem-huong-xuan</span><span>https://m.vepo.vn/san-pham</span><span>https://m.vepo.vn/sitemap.xml</span><span>https://m.vepo.vn/thung-carton</span><span>https://m.vepo.vn/tin-tuc-0</span><span>https://m.vepo.vn/vo-hop</span><span>https://mail.vepo.vn/</span><span>https://mail.vepo.vn/sitemap.xml</span><span>https://ns1.vepo.vn/</span><span>https://ns1.vepo.vn/sitemap.xml</span><span>https://ns2.vepo.vn/</span><span>https://ns2.vepo.vn/sitemap.xml</span><span>https://portal.vepo.vn/</span><span>https://portal.vepo.vn/sitemap.xml</span><span>https://smtp.vepo.vn/</span><span>https://smtp.vepo.vn/sitemap.xml</span><span>https://staging.vepo.vn/</span><span>https://staging.vepo.vn/sitemap.xml</span><span>https://static.vepo.vn/</span><span>https://static.vepo.vn/a</span><span>https://static.vepo.vn/banh-da-bon-xuan-dam-da-huong-vi-ha-tinh</span><span>https://static.vepo.vn/bien-thien-cam</span><span>https://static.vepo.vn/cam-gion-xuan-hoa-thuong-loc</span><span>https://static.vepo.vn/cau-chuyen-san-pham-ruou-tinh-can-loc</span><span>https://static.vepo.vn/cdn-cgi/l/email-protection</span><span>https://static.vepo.vn/chai-500-ml-4</span><span>https://static.vepo.vn/chuong-trinh-ocop-don-bay-phat-trien-kinh-te-nong-thon</span><span>https://static.vepo.vn/cua-hang-san-pham-ocop-thu-2-tai-can-loc-di-vao-hoat-dong</span><span>https://static.vepo.vn/dac-san-ha-tinh</span><span>https://static.vepo.vn/den-le-khoi</span><span>https://static.vepo.vn/du-lich-cong-dong-o-ha-tinh</span><span>https://static.vepo.vn/du-lich-ha-tinh</span><span>https://static.vepo.vn/du-lich-sinh-thai-son-kim</span><span>https://static.vepo.vn/dua-luoi-ngoc-khue</span><span>https://static.vepo.vn/ha-tinh-nang-tam-nong-san-chu-luc</span><span>https://static.vepo.vn/ho-trai-tieu</span><span>https://static.vepo.vn/ket-noi-thi-truong-tieu-thu-cho-san-pham-ocop-ha-tinh</span><span>https://static.vepo.vn/khach-san-bmc-ha-tinh</span><span>https://static.vepo.vn/khach-san-muong-thanh-grand</span><span>https://static.vepo.vn/khach-san-vinpearl-ha-tinh</span><span>https://static.vepo.vn/lien-he</span><span>https://static.vepo.vn/nha-hang-am-thuc-ben-xua</span><span>https://static.vepo.vn/nha-hang-khach-san</span><span>https://static.vepo.vn/nha-hang-toan-tam-vien</span><span>https://static.vepo.vn/nuoc-mam-thu-hung-0</span><span>https://static.vepo.vn/ocop</span><span>https://static.vepo.vn/phien-cho-quang-ba-san-pham-cong-nghiep-nong-thon-tieu-bieu-va-san-pham-ocop-ha-tinh</span><span>https://static.vepo.vn/quang-ba-nong-san-san-pham-ocop-ha-tinh-tai-thi-truong-ha-noi</span><span>https://static.vepo.vn/ruoc-kem-huong-xuan</span><span>https://static.vepo.vn/san-pham</span><span>https://static.vepo.vn/sitemap.xml</span><span>https://static.vepo.vn/sua-lien-ky-khang</span><span>https://static.vepo.vn/thung-carton</span><span>https://static.vepo.vn/tin-tuc-0</span><span>https://static.vepo.vn/tre-nguon-thien-cam-resort</span><span>https://static.vepo.vn/vo-hop</span><span>https://static.vepo.vn/vuon-quoc-gia-vu-quang</span><span>https://status.vepo.vn/</span><span>https://status.vepo.vn/sitemap.xml</span><span>https://test.vepo.vn/</span><span>https://test.vepo.vn/sitemap.xml</span><span>https://uat.vepo.vn/</span><span>https://uat.vepo.vn/sitemap.xml</span><span>https://vepo.vn/</span><span>https://vepo.vn/?p=&amp;post_type=</span><span>https://vepo.vn/about</span><span>https://vepo.vn/author/vepo</span><span>https://vepo.vn/author/vepo/page/2</span><span>https://vepo.vn/cach-vepo-vo-hieu-hoa-ddos-va-brute-force-bang-kien-truc-da-tang</span><span>https://vepo.vn/cat/cloud-server</span><span>https://vepo.vn/cat/khuyen-mai</span><span>https://vepo.vn/cat/tin-tuc</span><span>https://vepo.vn/cat/tin-tuc/page/2</span><span>https://vepo.vn/cat/vps</span><span>https://vepo.vn/cdn-cua-vepo-tang-toc-do-toan-cau-va-giai-phong-60-tai-trong-cho-cloud-server</span><span>https://vepo.vn/cloud-server-vepo-kien-truc-high-availability-vuot-troi-so-voi-vps-truyen-thong</span><span>https://vepo.vn/cong-nghe-anti-ddos-da-tang-tai-vepo-ngan-chan-cac-cap-do-tan-cong</span><span>https://vepo.vn/contact</span><span>https://vepo.vn/lua-chon-vps-cho-doanh-nghiep-vepo-va-nen-tang-cloud-lon-khac</span><span>https://vepo.vn/phuc-hoi-he-thong-va-du-lieu-linh-hoat-chi-trong-vai-cu-nhap-chuot-voi-vepo</span><span>https://vepo.vn/sitemap.xml</span><span>https://vepo.vn/tag/cdn</span><span>https://vepo.vn/tag/cloud-server</span><span>https://vepo.vn/tag/may-chu-vat-ly</span><span>https://vepo.vn/tag/nvidia</span><span>https://vepo.vn/tag/server</span><span>https://vepo.vn/tag/server-gpu</span><span>https://vepo.vn/tag/vps</span><span>https://vepo.vn/tai-nguyen-doc-lap-vs-overselling-so-sanh-vps-vepo-va-thuong-hieu-khac</span><span>https://vepo.vn/thue-1-server-vat-ly-tang-1-giam-den-50-dich-vu-khac</span><span>https://vepo.vn/thue-server-gpu-nvidia-a100-h100-rinh-ngay-iphone-17-pro-max-2025</span><span>https://vepo.vn/tintuc</span><span>https://vepo.vn/tintuc/page/2</span><span>https://vepo.vn/trai-nghiem-khac-biet-khi-dung-vps-vepo-voi-o-cung-nvme</span><span>https://vepo.vn/tuy-bien-cau-hinh-vps-va-mo-rong-tai-nguyen-de-dang</span><span>https://vepo.vn/vps-vepo-cho-website-thuong-mai-dien-tu-va-ung-dung-lon</span><span>https://vepo.vn/vps-vepo-khac-biet-khong-chi-la-vps-do-la-su-ho-tro-ky-thuat-24-7</span><span>https://vepo.vn/vps-vepo-uptime-99-cong-nghe-giup-doanh-nghiep-hoat-dong-24-7</span><span>https://vepo.vn/vps-vepo-vuot-troi-nho-co-che-tai-nguyen-doc-lap</span><span>https://vepo.vn/wp-comments-post.php</span><span>https://vpn.vepo.vn/</span><span>https://vpn.vepo.vn/sitemap.xml</span><span>https://www.vepo.vn/</span><span>https://www.vepo.vn/sitemap.xml</span></div><div class="field-label">Mô Tả</div><div class="field-text">Phát hiện lỗ hổng lộ thông tin nhạy cảm tại endpoint https://admin.vepo.vn/. Response của server chứa thông tin kỹ thuật nội bộ không nên hiển thị công khai. Bằng chứng:  defer src=&quot;https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516&quot; integrit. Thông tin này có thể giúp attacker lập kế hoạch tấn công chính xác hơn.</div><div class="field-label">Tác Động</div><div class="field-text">Thông tin lộ ra giúp attacker thu thập intelligence về hệ thống: phiên bản phần mềm, cấu trúc code, cấu hình server và các điểm yếu tiềm ẩn khác. Đây thường là bước đầu trong một cuộc tấn công lớn hơn.</div><div class="field-label">Payload Mẫu</div><div class="field-text"><code class="code-inline">&#x27;</code></div><div class="field-label">Tham Số</div><div class="field-text"><code class="code-inline">—</code></div><div class="field-label">Khắc Phục</div><ol class="fix-list"><li>Tắt debug mode và error reporting chi tiết trong production: không hiển thị stack trace, query SQL hay thông tin môi trường cho user.</li><li>Cấu hình custom error page trả về thông báo chung (500 Internal Server Error) thay vì thông báo lỗi kỹ thuật.</li><li>Review và xóa các endpoint test, phpinfo(), debug endpoint trước khi deploy production.</li></ol><span class="conf-badge conf-likely">Có khả năng</span></div></div></div><a class="anchor" id="cve"></a><div class="section"><div class="section-title">CVE Intelligence</div><div class="callout callout-info"><span>ℹ</span><span>Không tìm thấy CVE liên quan đến các công nghệ được phát hiện.</span></div></div><a class="anchor" id="assets"></a><div class="section"><div class="section-title">Tài Sản</div><div class="metric-tiles"><div class="metric-tile"><div class="metric-tile-val">1</div><div class="metric-tile-lbl">Tên Miền</div></div><div class="metric-tile"><div class="metric-tile-val">0</div><div class="metric-tile-lbl">Tên Miền Phụ</div></div><div class="metric-tile"><div class="metric-tile-val">298</div><div class="metric-tile-lbl">Endpoints</div></div><div class="metric-tile"><div class="metric-tile-val">0</div><div class="metric-tile-lbl">Công Nghệ</div></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px"><div style="background:#111d2e;border:1px solid #1e3352;border-radius:8px;padding:16px"><div style="font-size:11px;letter-spacing:2px;color:#4a6a90;text-transform:uppercase;margin-bottom:10px">Tên Miền</div><div style="font-size:12px;color:#8aa8cc;padding:2px 0;font-family:'SF Mono',Consolas,monospace">https://vepo.vn/</div></div><div style="background:#111d2e;border:1px solid #1e3352;border-radius:8px;padding:16px"><div style="font-size:11px;letter-spacing:2px;color:#4a6a90;text-transform:uppercase;margin-bottom:10px">Tên Miền Phụ</div><span style="color:#4a6a90;font-size:12px">Không có</span></div></div><div style="background:#111d2e;border:1px solid #1e3352;border-radius:8px;padding:16px"><div style="font-size:11px;letter-spacing:2px;color:#4a6a90;text-transform:uppercase;margin-bottom:10px">Công Nghệ Phát Hiện</div><div class="tech-pills"><span style="color:#4a6a90">Không phát hiện</span></div></div></div><a class="anchor" id="roadmap"></a><div class="section"><div class="section-title">Lộ Trình Khắc Phục</div><div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Ưu Tiên</th><th>ID</th><th>Lỗ Hổng</th><th>Hành Động</th><th>Nỗ Lực</th><th>Mức Độ</th></tr></thead><tbody><tr><td class="p0">P0 — Ngay</td><td><code class="code-inline">3fb1ae7f</code></td><td>Sqli</td><td>Sử dụng Prepared Statements (Parameterized Queries) cho mọi câu truy vấn SQL — không bao giờ nối…</td><td>2–4 giờ</td><td><span class="sev-badge" style="color:#ff3e5e;background:rgba(255,62,94,0.15);border-color:#ff3e5e40">Critical</span></td></tr><tr><td class="p1">P1 — Sprint 1</td><td><code class="code-inline">c07c4904</code></td><td>Ssrf</td><td>Validate URL đầu vào chống SSRF: block các IP private (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16),…</td><td>4–6 giờ</td><td><span class="sev-badge" style="color:#ff7b44;background:rgba(255,123,68,0.15);border-color:#ff7b4440">High</span></td></tr><tr><td class="p1">P1 — Sprint 1</td><td><code class="code-inline">c62f413c</code></td><td>Time Based Sqli</td><td>Sử dụng Prepared Statements — đây là fix dứt điểm duy nhất cho time-based SQLi.</td><td>2–4 giờ</td><td><span class="sev-badge" style="color:#ff7b44;background:rgba(255,123,68,0.15);border-color:#ff7b4440">High</span></td></tr><tr><td class="p2">P2 — Sprint 2</td><td><code class="code-inline">4a4771b5</code></td><td>Xss</td><td>Escape HTML entities cho mọi output động: dùng html.escape() (Python), htmlspecialchars() (PHP),…</td><td>1–2 giờ</td><td><span class="sev-badge" style="color:#ffb800;background:rgba(255,184,0,0.15);border-color:#ffb80040">Medium</span></td></tr><tr><td class="p2">P2 — Sprint 2</td><td><code class="code-inline">4f066cf0</code></td><td>Info Disclosure</td><td>Tắt debug mode và error reporting chi tiết trong production: không hiển thị stack trace, query SQL…</td><td>30 phút–1 giờ</td><td><span class="sev-badge" style="color:#ffb800;background:rgba(255,184,0,0.15);border-color:#ffb80040">Medium</span></td></tr></tbody></table></div></div><div class="footer">HQG Security Platform &nbsp;·&nbsp; Scan ID: <code style="font-size:11px;color:#4a6a90">1916dd89-0a8e-416b-836b-0e042523fcab</code> &nbsp;·&nbsp; Được tạo lúc 01/04/2026 02:43 UTC</div></main><script>
+function toggleDetail(id){
+  var el=document.getElementById(id);
+  if(!el)return;
+  el.style.display=(el.style.display==='none'?'block':'none');
+  var btn=el.previousElementSibling&&el.previousElementSibling.querySelector('.finding-toggle');
+  if(btn)btn.textContent=(el.style.display==='none'?'▶':'▼');
+}
+document.addEventListener('DOMContentLoaded',function(){
+  document.querySelectorAll('a[href^="#"]').forEach(function(a){
+    a.addEventListener('click',function(e){
+      var t=document.querySelector(this.getAttribute('href'));
+      if(t){e.preventDefault();t.scrollIntoView({behavior:'smooth',block:'start'});}
+    });
+  });
+});
+
+</script>
+</body>
+</html>

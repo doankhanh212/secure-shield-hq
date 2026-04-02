@@ -25,7 +25,7 @@ export function ScanActivityTimeline({ data, isLoading }: ScanActivityTimelinePr
             <BarChart data={data} barGap={2}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
               <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-              <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
+              <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" allowDecimals={false} tickCount={4} />
               <Tooltip
                 contentStyle={{
                   backgroundColor: "hsl(var(--card))",

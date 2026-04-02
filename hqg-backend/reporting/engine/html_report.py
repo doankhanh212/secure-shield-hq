@@ -796,15 +796,67 @@ def _render_cve_section(cve_list: list[dict]) -> str:
     return "".join(parts)
 
 
-def _render_asset_section(asset_summary: dict) -> str:
-    domains   = asset_summary.get("domains") or []
-    subdoms   = asset_summary.get("subdomains") or []
-    n_ep      = int(asset_summary.get("total_endpoints", 0))
-    techs     = asset_summary.get("technologies") or []
+def _render_tech_grid(wap_techs: list[dict]) -> str:
+    """Render a Wappalyzer-style technology grid with name, version, CPE, categories."""
+    if not wap_techs:
+        return '<span style="color:#4a6a90">Không phát hiện</span>'
 
-    tech_pills = "".join(
-        f'<span class="tech-pill">{_safe(t)}</span>' for t in techs
-    ) if techs else '<span style="color:#4a6a90">Không phát hiện</span>'
+    cards = []
+    for t in wap_techs:
+        name     = _safe(t.get("name", ""))
+        version  = _safe(t.get("version") or "")
+        cpe      = _safe(t.get("cpe") or "")
+        cats     = t.get("categories") or []
+        cat_str  = _safe(", ".join(str(c) for c in cats[:2]) if cats else "")
+
+        ver_badge = (
+            f'<span style="background:#0e3a5c;color:#38bdf8;border-radius:4px;'
+            f'padding:1px 6px;font-size:10px;font-family:monospace;font-weight:700">'
+            f'{version}</span>'
+        ) if version else ""
+
+        cpe_line = (
+            f'<div style="font-size:9px;color:#2a4a6a;font-family:monospace;'
+            f'margin-top:3px;word-break:break-all">{cpe}</div>'
+        ) if cpe else ""
+
+        cards.append(
+            f'<div style="background:#0d1e30;border:1px solid #1e3352;border-radius:8px;'
+            f'padding:10px 12px;min-width:140px">'
+            f'<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'
+            f'<span style="font-size:13px;font-weight:600;color:#e8f4ff">{name}</span>'
+            f'{ver_badge}</div>'
+            f'<div style="font-size:10px;color:#4a6a90">{cat_str}</div>'
+            f'{cpe_line}'
+            f'</div>'
+        )
+
+    return (
+        '<div style="display:flex;flex-wrap:wrap;gap:8px">'
+        + "".join(cards)
+        + '</div>'
+    )
+
+
+def _render_asset_section(asset_summary: dict) -> str:
+    domains     = asset_summary.get("domains") or []
+    subdoms     = asset_summary.get("subdomains") or []
+    n_ep        = int(asset_summary.get("total_endpoints", 0))
+    wap_techs   = asset_summary.get("wappalyzer_technologies") or []
+    plain_techs = asset_summary.get("technologies") or []
+    n_techs     = len(wap_techs) if wap_techs else len(plain_techs)
+
+    # Choose best rendering: rich Wappalyzer grid or fallback plain pills
+    if wap_techs:
+        tech_block = _render_tech_grid(wap_techs)
+    elif plain_techs:
+        tech_block = (
+            '<div class="tech-pills">'
+            + "".join(f'<span class="tech-pill">{_safe(t)}</span>' for t in plain_techs)
+            + '</div>'
+        )
+    else:
+        tech_block = '<span style="color:#4a6a90">Không phát hiện</span>'
 
     def _domain_list(items: list) -> str:
         if not items:
@@ -818,7 +870,7 @@ def _render_asset_section(asset_summary: dict) -> str:
     return (
         '<a class="anchor" id="assets"></a>'
         '<div class="section">'
-        '<div class="section-title">Tài Sản</div>'
+        '<div class="section-title">Tài Sản &amp; Công Nghệ</div>'
         '<div class="metric-tiles">'
         f'<div class="metric-tile"><div class="metric-tile-val">{len(domains)}</div>'
         '<div class="metric-tile-lbl">Tên Miền</div></div>'
@@ -826,7 +878,7 @@ def _render_asset_section(asset_summary: dict) -> str:
         '<div class="metric-tile-lbl">Tên Miền Phụ</div></div>'
         f'<div class="metric-tile"><div class="metric-tile-val">{n_ep}</div>'
         '<div class="metric-tile-lbl">Endpoints</div></div>'
-        f'<div class="metric-tile"><div class="metric-tile-val">{len(techs)}</div>'
+        f'<div class="metric-tile"><div class="metric-tile-val">{n_techs}</div>'
         '<div class="metric-tile-lbl">Công Nghệ</div></div>'
         '</div>'
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">'
@@ -840,9 +892,12 @@ def _render_asset_section(asset_summary: dict) -> str:
         '</div>'
         '</div>'
         '<div style="background:#111d2e;border:1px solid #1e3352;border-radius:8px;padding:16px">'
-        '<div style="font-size:11px;letter-spacing:2px;color:#4a6a90;text-transform:uppercase;margin-bottom:10px">Công Nghệ Phát Hiện</div>'
-        f'<div class="tech-pills">{tech_pills}</div>'
-        '</div>'
+        '<div style="font-size:11px;letter-spacing:2px;color:#4a6a90;text-transform:uppercase;margin-bottom:12px">'
+        'Công Nghệ Phát Hiện'
+        + (' <span style="font-size:10px;color:#38bdf8;margin-left:6px">⚡ Wappalyzer</span>' if wap_techs else '')
+        + '</div>'
+        + tech_block
+        + '</div>'
         '</div>'
     )
 

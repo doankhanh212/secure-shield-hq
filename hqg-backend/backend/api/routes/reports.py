@@ -17,6 +17,125 @@ from scanner.scan_manager.scan_service import (
     get_scan,
 )
 
+
+# ── Retroactive Wappalyzer fingerprinting ────────────────────────────────────
+
+def _retroactive_fingerprint(discovery: dict) -> list[dict]:
+    """
+    Run Wappalyzer on saved service_details from an old scan that has no
+    wappalyzer_technologies.  Returns a list of DetectedTechnology dicts.
+    Safe to call in a threadpool — no async I/O.
+    """
+    try:
+        from scanner.asset_discovery.wappalyzer_engine import fingerprint_response
+    except Exception:
+        return []
+
+    service_details = discovery.get("service_details") or []
+    wap_raw = []
+    for svc in service_details:
+        if not isinstance(svc, dict):
+            continue
+        body = (
+            svc.get("body") or svc.get("html") or
+            svc.get("response_body") or svc.get("body_snippet") or ""
+        )
+        hdrs = svc.get("headers") or {}
+        svc_url = svc.get("url") or svc.get("base_url") or ""
+        if body or hdrs:
+            try:
+                wap_raw.extend(fingerprint_response(svc_url, body, hdrs))
+            except Exception:
+                continue
+
+    # Dedup: keep entry with version over one without
+    seen: dict[str, object] = {}
+    for t in wap_raw:
+        existing = seen.get(t.name)
+        if existing is None or (t.version and not existing.version):
+            seen[t.name] = t
+    return [t.to_dict() for t in seen.values()]
+
+
+# ── Retroactive CVE lookup via Wappalyzer CPE ────────────────────────────────
+
+async def _build_cve_from_wappalyzer(
+    wap_techs: list[dict],
+    job: object,
+) -> dict:
+    """
+    Query NVD via CPE for each versioned Wappalyzer tech.
+    Returns a cve_intelligence dict compatible with the report renderer.
+    """
+    import asyncio as _asyncio
+    import httpx as _httpx
+
+    try:
+        from scanner.cve_intelligence.nvd_client import search_cves_by_cpe
+        from backend.config import get_settings as _get_settings
+    except Exception:
+        return {}
+
+    versioned = [
+        t for t in wap_techs
+        if t.get("cpe") and t.get("version") and "*" not in str(t.get("version", ""))
+    ]
+    if not versioned:
+        return {}
+
+    try:
+        api_key = _get_settings().nvd_api_key or None
+    except Exception:
+        api_key = None
+
+    cve_records: list[dict] = []
+    seen_ids: set[str] = set()
+
+    async with _httpx.AsyncClient(timeout=_httpx.Timeout(15.0)) as session:
+        for tech in versioned:
+            try:
+                hits = await search_cves_by_cpe(
+                    cpe=tech["cpe"], client=session, api_key=api_key
+                )
+                for h in hits:
+                    cid = h.get("cve_id", "")
+                    if not cid or cid in seen_ids:
+                        continue
+                    seen_ids.add(cid)
+                    cve_records.append({
+                        "cve_id":    cid,
+                        "technology": tech.get("name", ""),
+                        "version":   tech.get("version", ""),
+                        "cvss":      float(h.get("cvss_score") or 0.0),
+                        "severity":  str(h.get("severity") or "Medium"),
+                        "summary":   (h.get("description") or "")[:500],
+                        "source":    "NVD-cpe",
+                        "is_actively_exploited": False,
+                    })
+            except Exception:
+                continue
+            await _asyncio.sleep(0.7)  # NVD rate limit
+
+    if not cve_records:
+        return {}
+
+    cve_records.sort(key=lambda r: float(r.get("cvss", 0)), reverse=True)
+    return {"cve_records": cve_records, "total_cves": len(cve_records)}
+
+
+# ── Existing CVE intelligence getter (best-effort from Redis) ─────────────────
+
+def get_cve_intelligence(scan_id: str) -> dict | None:
+    """Load cached CVE intelligence from Redis for a scan, if present."""
+    try:
+        import redis as _redis, json as _json
+        from backend.config import get_settings
+        r = _redis.from_url(get_settings().redis_url, decode_responses=True)
+        raw = r.get(f"scan:{scan_id}:cve_intelligence")
+        return _json.loads(raw) if raw else None
+    except Exception:
+        return None
+
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 _REPORTS_DIR = os.environ.get("HQG_REPORTS_DIR", "/tmp/hqg-reports")
@@ -159,13 +278,35 @@ async def download_report(
         discovery = await run_in_threadpool(get_discovery, scan_id)
         attack_surface = await run_in_threadpool(get_attack_surface, scan_id)
         attack_paths = await run_in_threadpool(get_attack_paths, scan_id)
+
+        # ── Retroactive Wappalyzer fingerprinting ────────────────────────
+        # If the scan ran before Wappalyzer was integrated (or returned no
+        # wappalyzer_technologies), re-fingerprint now from saved service_details.
+        discovery = dict(discovery or {})
+        if not discovery.get("wappalyzer_technologies"):
+            discovery["wappalyzer_technologies"] = await run_in_threadpool(
+                _retroactive_fingerprint, discovery
+            )
+
+        # ── Retroactive CVE enrichment via CPE ───────────────────────────
+        # Build cve_intelligence from Wappalyzer CPE data when it's absent.
+        cve_intelligence = await run_in_threadpool(
+            get_cve_intelligence, scan_id
+        )
+        if not cve_intelligence:
+            cve_intelligence = await _build_cve_from_wappalyzer(
+                discovery.get("wappalyzer_technologies") or [],
+                job,
+            )
+
         scan_meta: dict[str, object] = {
-            "target":          job.target,
-            "mode":            job.mode,
-            "started_at":      job.created_at,
-            "discovery":       discovery,
-            "attack_surface":  attack_surface,
-            "attack_paths":    attack_paths,
+            "target":           job.target,
+            "mode":             job.mode,
+            "started_at":       job.created_at,
+            "discovery":        discovery,
+            "cve_intelligence": cve_intelligence,
+            "attack_surface":   attack_surface,
+            "attack_paths":     attack_paths,
         }
         try:
             candidate = await run_in_threadpool(

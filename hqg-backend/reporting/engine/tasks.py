@@ -146,11 +146,31 @@ def _build_scan_result_dict(
             for c in report.cve_details
         ]
 
+    # Build versioned tech list: prefer Wappalyzer data (has name+version+cpe)
+    # over the plain string list from basic fingerprinting.
+    wap_techs: list[dict] = []
+    if isinstance(discovery.get("wappalyzer_technologies"), list):
+        wap_techs = [
+            t for t in discovery["wappalyzer_technologies"]
+            if isinstance(t, dict) and t.get("name")
+        ]
+
+    if wap_techs:
+        # Build display strings: "Name 1.2.3" or "Name" when no version
+        tech_display = [
+            f"{t['name']} {t['version']}" if t.get("version") else t["name"]
+            for t in wap_techs
+        ]
+        # Also include the raw wappalyzer dicts for richer rendering
+    else:
+        tech_display = report.asset_summary.technologies
+
     asset_summary = {
         "domains":      report.asset_summary.domains,
         "subdomains":   report.asset_summary.subdomains,
         "services":     report.asset_summary.services,
-        "technologies": report.asset_summary.technologies,
+        "technologies": tech_display,
+        "wappalyzer_technologies": wap_techs,  # full structured data for rich rendering
         "open_ports":   _as_list(discovery.get("open_ports")),
     }
 

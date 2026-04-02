@@ -321,6 +321,23 @@ async def run_pipeline(
     _set_stage(scan_id, ScanStage.DETECTION, 0.82)
 
     # ------------------------------------------------------------------ #
+    # Verification Layer — multi-step false positive reduction            #
+    # Runs after detection merge; non-fatal (any failure keeps originals) #
+    # ------------------------------------------------------------------ #
+    if all_findings:
+        try:
+            from scanner.verification.verifier import verify_findings_async as _verify
+
+            all_findings = await _verify(all_findings)
+            logger.info(
+                "scan=%s verification complete: %d findings processed",
+                scan_id,
+                len(all_findings),
+            )
+        except Exception as _vfy_exc:
+            logger.warning("scan=%s verification layer failed: %s", scan_id, _vfy_exc)
+
+    # ------------------------------------------------------------------ #
     # Stage 5 – AI Analysis                                               #
     # ------------------------------------------------------------------ #
     _set_stage(scan_id, ScanStage.AI_ANALYSIS, 0.84)
@@ -601,6 +618,34 @@ async def run_pipeline(
         logger.info("scan=%s stage=attack_surface disabled (mode=%s)", scan_id, config.name)
 
     _ensure_not_cancelled(scan_id)
+
+    # ------------------------------------------------------------------ #
+    # Asset Intelligence — aggregate per-host view (non-blocking)         #
+    # ------------------------------------------------------------------ #
+    asset_intelligence_output: list[dict[str, object]] = []
+    try:
+        from scanner.asset_intelligence.asset_manager import build_assets_async
+
+        _cve_recs: list[dict[str, object]] = []
+        if cve_output and isinstance(cve_output, dict):
+            _cve_recs = cve_output.get("cve_records", [])
+
+        _assets = await build_assets_async(
+            urls=endpoints,
+            findings=analyzed_findings,
+            cve_records=_cve_recs,
+        )
+        asset_intelligence_output = [a.to_dict() for a in _assets]
+        logger.info(
+            "scan=%s asset_intelligence: %d assets built",
+            scan_id, len(asset_intelligence_output),
+        )
+    except Exception as _ai_exc:
+        logger.warning(
+            "scan=%s asset_intelligence failed (non-fatal): %s",
+            scan_id, _ai_exc,
+        )
+
     _set_stage(scan_id, ScanStage.DONE, 1.0)
 
     return {
@@ -618,4 +663,5 @@ async def run_pipeline(
         "quick_summary": quick_summary,
         "attack_surface": attack_surface_output,
         "attack_paths": attack_paths_output,
+        "asset_intelligence": asset_intelligence_output,
     }

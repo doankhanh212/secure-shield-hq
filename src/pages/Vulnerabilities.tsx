@@ -114,6 +114,9 @@ function VulnCard({ vuln, expanded, onToggle, onFpToggle, fpPending }: {
                 {vuln.confidence_label}
               </Badge>
             )}
+            {vuln.cwe_id && (
+              <span className="text-[10px] font-mono text-muted-foreground">{vuln.cwe_id}</span>
+            )}
             {vuln.is_false_positive && (
               <Badge variant="outline" className="text-[10px] bg-amber-500/10 border-amber-500/30 text-amber-400 px-1.5 py-0">
                 False Positive
@@ -249,9 +252,6 @@ function VulnCard({ vuln, expanded, onToggle, onFpToggle, fpPending }: {
             >
               {isFP ? "Unmark False Positive" : "Mark False Positive"}
             </Button>
-            {vuln.cwe_id && (
-              <span className="text-xs text-muted-foreground font-mono ml-auto">{vuln.cwe_id}</span>
-            )}
           </div>
         </div>
       )}
@@ -268,6 +268,8 @@ const Vulnerabilities = () => {
   const [search, setSearch] = useState("");
   const [severityFilter, setSeverityFilter] = useState<string>("");
   const [domainFilter, setDomainFilter] = useState<string>("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 20;
 
   // Hydrate domain filter from URL query param (?domain=xxx)
   useEffect(() => {
@@ -312,6 +314,17 @@ const Vulnerabilities = () => {
   const vulnerabilities = domainFilter
     ? allVulnerabilities.filter((v) => v.endpoint.includes(domainFilter))
     : allVulnerabilities;
+
+  const totalPages = Math.ceil(vulnerabilities.length / ITEMS_PER_PAGE);
+  const paginated = vulnerabilities.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE,
+  );
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [severityFilter, domainFilter, search]);
 
   // Collect unique domain-like hostnames from loaded vulnerabilities for the dropdown
   const domainOptions = Array.from(
@@ -424,7 +437,7 @@ const Vulnerabilities = () => {
             <p className="text-muted-foreground text-sm">Không tìm thấy lỗ hổng nào</p>
           </div>
         ) : (
-          vulnerabilities.map((vuln) => (
+          paginated.map((vuln) => (
             <VulnCard
               key={vuln.id}
               vuln={vuln}
@@ -436,6 +449,52 @@ const Vulnerabilities = () => {
           ))
         )}
       </div>
+
+      {/* Pagination */}
+      {!isLoading && totalPages > 1 && (
+        <div className="flex items-center justify-between mt-6 pt-4 border-t border-border">
+          <span className="text-sm text-muted-foreground">
+            Hiện {(currentPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(currentPage * ITEMS_PER_PAGE, vulnerabilities.length)} / {vulnerabilities.length} lỗ hổng
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1.5 rounded-lg border border-border text-sm disabled:opacity-40 hover:bg-muted/50 transition-colors"
+            >
+              ←
+            </button>
+            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+              let page: number;
+              if (totalPages <= 5) page = i + 1;
+              else if (currentPage <= 3) page = i + 1;
+              else if (currentPage >= totalPages - 2) page = totalPages - 4 + i;
+              else page = currentPage - 2 + i;
+              return (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  className={cn(
+                    "w-8 h-8 rounded-lg text-sm transition-colors",
+                    page === currentPage
+                      ? "bg-[#06b6d4] text-white"
+                      : "border border-border hover:bg-muted/50"
+                  )}
+                >
+                  {page}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1.5 rounded-lg border border-border text-sm disabled:opacity-40 hover:bg-muted/50 transition-colors"
+            >
+              →
+            </button>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 };

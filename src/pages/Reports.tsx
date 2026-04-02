@@ -84,7 +84,10 @@ const Reports = () => {
     setLoadingFormat(key);
     try {
       const url = getReportDownloadUrl(scanId, fmt);
-      const response = await fetch(url);
+      const token = localStorage.getItem("access_token");
+      const response = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }

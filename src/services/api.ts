@@ -396,16 +396,91 @@ export function createScanWebSocket(
 ): WebSocket {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   const host = window.location.host || "localhost:8000";
+  const token = localStorage.getItem("access_token") ?? "";
   const ws = new WebSocket(
-    `${protocol}://${host}/api/v1/ws/scans/${scanId}`
+    `${protocol}://${host}/api/v1/ws/scans/${scanId}?token=${encodeURIComponent(token)}`
   );
   ws.onmessage = (event) => {
     try {
       onMessage(JSON.parse(event.data));
     } catch {}
   };
-  ws.onclose = () => onClose?.();
+  ws.onclose = (event) => {
+    // 4401 = server closed due to invalid/missing token
+    if (event.code === 4401) {
+      logout();
+    }
+    onClose?.();
+  };
   return ws;
+}
+
+// ── Asset Intelligence ────────────────────────────────────────────────────
+
+export interface AssetTechnology {
+  name: string;
+  version: string | null;
+  confidence: number;
+  sources: string[];
+  cpe?: string | null;
+  categories?: string[];
+}
+
+export interface AssetVulnerability {
+  id: string;
+  type: string;
+  endpoint: string;
+  severity: string;
+  confidence: string; // confirmed | high | medium | low
+  evidence?: string;
+  verification_steps?: string[];
+  payload?: string;
+  parameter?: string;
+  cvss_score?: number;
+  cwe_id?: string;
+  explanation?: string;
+  impact?: string;
+  remediation?: string;
+  owasp_category?: string;
+  detection_method?: string;
+}
+
+export interface AssetCVE {
+  id: string;
+  cvss: number;
+  severity: string;
+  summary?: string;
+  published?: string;
+  is_actively_exploited?: boolean;
+}
+
+export interface AssetIntelligenceItem {
+  host: string;
+  endpoints: string[];
+  technologies: AssetTechnology[];
+  vulnerabilities: AssetVulnerability[];
+  cves: AssetCVE[];
+  risk_score: number;
+}
+
+export interface AssetIntelligenceResponse {
+  scan_id: string;
+  target: string;
+  assets: AssetIntelligenceItem[];
+  total_assets: number;
+  critical_assets: number;
+  high_risk_assets: number;
+  total_cves: number;
+}
+
+export function getAssetIntelligence(scanId: string): Promise<AssetIntelligenceResponse> {
+  return request<AssetIntelligenceResponse>(
+    `${API_BASE}/scans/${encodeURIComponent(scanId)}/asset-intelligence`
+  );
+}
+
+export function getLatestAssetIntelligence(): Promise<AssetIntelligenceResponse> {
+  return request<AssetIntelligenceResponse>(`${API_BASE}/asset-intelligence/latest`);
 }
 
 // ── Legacy aliases (used by use-dashboard-data) ────────────────────────────

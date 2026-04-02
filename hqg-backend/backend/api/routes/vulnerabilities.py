@@ -1,24 +1,24 @@
 from __future__ import annotations
 
-import json
+import logging
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
+from backend.api.deps import get_current_user
 from scanner.scan_manager.scan_service import get_findings, get_scan, list_scans, store_findings
 
 router = APIRouter(prefix="/vulnerabilities", tags=["vulnerabilities"])
+logger = logging.getLogger(__name__)
 
 
 def _vuln_id(scan_id: str, idx: int) -> str:
-    """Encode a stable vulnerability ID from its scan and positional index."""
     return f"{scan_id}_{idx}"
 
 
 def _decode_vuln_id(vuln_id: str) -> tuple[str, int]:
-    """Parse a vulnerability ID back into (scan_id, idx). Raises ValueError on bad format."""
     parts = vuln_id.rsplit("_", 1)
     if len(parts) != 2:
         raise ValueError(f"Invalid vulnerability id: {vuln_id!r}")
@@ -31,32 +31,34 @@ def _decode_vuln_id(vuln_id: str) -> tuple[str, int]:
 @router.get("", summary="List vulnerabilities")
 async def list_vulnerabilities(
     scan_id: Annotated[str | None, Query(description="Filter by scan ID")] = None,
-    severity: Annotated[str | None, Query(description="Filter by severity (Critical/High/Medium/Low)")] = None,
-    domain: Annotated[str | None, Query(description="Filter by domain/hostname substring")] = None,
+    severity: Annotated[str | None, Query(description="Filter by severity")] = None,
+    domain: Annotated[str | None, Query(description="Filter by domain substring")] = None,
     endpoint: Annotated[str | None, Query(description="Filter by endpoint substring")] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
+    _: dict = Depends(get_current_user),
 ) -> dict[str, object]:
-    """
-    Return a paginated vulnerability list.
-
-    Supports optional filters: ``scan_id``, ``severity``, ``domain``, ``endpoint``.
-    If ``scan_id`` is omitted the 200 most-recent findings across all scans
-    are returned (newest scans first).
-    """
     def _load() -> list[dict[str, object]]:
         if scan_id:
             scan_ids = [scan_id]
         else:
-            all_scans = list_scans()  # already sorted newest-first
-            scan_ids = [s["scan_id"] for s in all_scans]
+            all_scans = list_scans()
+            # Only load findings from completed scans, cap at 20 most recent
+            scan_ids = [
+                s["scan_id"] for s in all_scans
+                if str(s.get("status", "")) == "completed"
+            ][:20]
 
         items: list[dict[str, object]] = []
         for sid in scan_ids:
             for idx, finding in enumerate(get_findings(sid)):
+                if bool(finding.get("is_false_positive", False)):
+                    continue
                 vuln = dict(finding)
                 vuln["id"] = _vuln_id(sid, idx)
                 vuln["scan_id"] = sid
                 items.append(vuln)
+            if len(items) >= limit:
+                break
 
         if severity:
             sev_lower = severity.lower()
@@ -76,10 +78,10 @@ async def list_vulnerabilities(
 # ── GET /vulnerabilities/{id} ────────────────────────────────────────────────
 
 @router.get("/{vuln_id}", summary="Get full vulnerability detail")
-async def get_vulnerability(vuln_id: str) -> dict[str, object]:
-    """
-    Return a single vulnerability by its ID, including explanation and remediation.
-    """
+async def get_vulnerability(
+    vuln_id: str,
+    _: dict = Depends(get_current_user),
+) -> dict[str, object]:
     try:
         scan_id, idx = _decode_vuln_id(vuln_id)
     except ValueError:
@@ -94,8 +96,6 @@ async def get_vulnerability(vuln_id: str) -> dict[str, object]:
         vuln = dict(findings[idx])
         vuln["id"] = vuln_id
         vuln["scan_id"] = scan_id
-
-        # Attach remediation if not already present (older findings may lack it)
         if "remediation" not in vuln:
             from reporting.engine.models import get_remediation
             vuln["remediation"] = get_remediation(str(vuln.get("vulnerability_type", "")))
@@ -115,13 +115,20 @@ class VulnPatch(BaseModel):
     false_positive_reason: str | None = None
     remediation_note: str | None = None
 
+    @field_validator("false_positive_reason", "remediation_note", mode="before")
+    @classmethod
+    def limit_string_length(cls, v: object) -> object:
+        if isinstance(v, str) and len(v) > 2000:
+            raise ValueError("Field must not exceed 2000 characters")
+        return v
+
 
 @router.patch("/{vuln_id}", summary="Update vulnerability fields")
-async def patch_vulnerability(vuln_id: str, body: VulnPatch) -> dict[str, object]:
-    """
-    Update mutable fields on a vulnerability: status, is_false_positive,
-    false_positive_reason, remediation_note.
-    """
+async def patch_vulnerability(
+    vuln_id: str,
+    body: VulnPatch,
+    _: dict = Depends(get_current_user),
+) -> dict[str, object]:
     try:
         scan_id, idx = _decode_vuln_id(vuln_id)
     except ValueError:
@@ -142,7 +149,6 @@ async def patch_vulnerability(vuln_id: str, body: VulnPatch) -> dict[str, object
         findings[idx] = vuln
         store_findings(scan_id, findings)
 
-        # If false positive status changed, refresh domain vuln counts
         if "is_false_positive" in updates:
             try:
                 from backend.api.routes.assets import register_domain_from_scan
@@ -159,7 +165,7 @@ async def patch_vulnerability(vuln_id: str, body: VulnPatch) -> dict[str, object
                         findings=findings,
                     )
             except Exception:
-                pass  # Domain sync failure is non-fatal
+                logger.debug("Domain sync after false-positive update failed", exc_info=True)
 
         vuln["id"] = vuln_id
         vuln["scan_id"] = scan_id

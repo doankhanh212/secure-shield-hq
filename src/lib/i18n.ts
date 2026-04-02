@@ -4,6 +4,7 @@ const translations: Record<string, Record<Lang, string>> = {
   "nav.overview": { vi: "Tổng quan", en: "Overview" },
   "nav.assets": { vi: "Quản lý Tên miền", en: "Domain Management" },
   "nav.scans": { vi: "Quét Bảo mật", en: "Security Scans" },
+  "nav.assetIntelligence": { vi: "Tình báo Tài sản", en: "Asset Intelligence" },
   "nav.vulnerabilities": { vi: "Lỗ hổng", en: "Vulnerabilities" },
   "nav.reports": { vi: "Báo cáo", en: "Reports" },
   "nav.settings": { vi: "Cài đặt", en: "Settings" },

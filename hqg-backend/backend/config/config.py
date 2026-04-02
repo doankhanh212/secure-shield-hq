@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "HQG Web Security Platform"
-    app_env: str = Field(default="development")
-    app_debug: bool = Field(default=True)
+    app_env: str = Field(default="production")
+    app_debug: bool = Field(default=False)
     log_level: str = Field(default="INFO")
 
     api_v1_prefix: str = "/api/v1"
@@ -30,9 +30,10 @@ class Settings(BaseSettings):
 
     celery_task_default_queue: str = Field(default="queue_default")
 
-    # NVD API key — tùy chọn, không bắt buộc
-    # Không có key: rate limit 5 req/30s; có key: 50 req/30s
-    # Đăng ký miễn phí: https://nvd.nist.gov/developers/request-an-api-key
+    # CORS — comma-separated list of allowed origins
+    allowed_origins: str = Field(default="http://localhost:3000,http://localhost:5173")
+
+    # NVD API key — optional; without key rate limit is 5 req/30s
     nvd_api_key: str = Field(default="")
 
 

@@ -352,6 +352,66 @@ body{
 
 /* Anchor offset for fixed sidebar */
 .anchor{display:block;position:relative;top:-24px;visibility:hidden}
+
+/* Asset Intelligence section */
+.ai-host-block{
+  background:#111d2e;border:1px solid #1e3352;border-radius:8px;
+  margin-bottom:16px;overflow:hidden
+}
+.ai-host-header{
+  display:flex;align-items:center;gap:10px;
+  padding:14px 18px;cursor:pointer;user-select:none;
+  transition:background .15s
+}
+.ai-host-header:hover{background:#162338}
+.ai-host-name{
+  font-size:15px;font-weight:700;color:#e8f4ff;flex:1;
+  font-family:'SF Mono','Cascadia Code',Consolas,monospace
+}
+.ai-risk-bar-wrap{width:80px;background:#1e3352;border-radius:3px;height:6px;margin-right:4px;flex-shrink:0}
+.ai-risk-bar{height:6px;border-radius:3px}
+.ai-risk-score{
+  font-size:13px;font-weight:800;font-family:'SF Mono',Consolas,monospace;
+  width:36px;text-align:right;flex-shrink:0
+}
+.ai-host-body{padding:16px 18px;border-top:1px solid #1e3352}
+.ai-sub-title{
+  font-size:10px;letter-spacing:2px;color:#4a6a90;
+  text-transform:uppercase;margin:14px 0 8px
+}
+.ai-sub-title:first-child{margin-top:0}
+.ai-vuln-group{
+  background:#0d1520;border:1px solid #1e3352;border-radius:6px;
+  margin-bottom:8px;overflow:hidden
+}
+.ai-vuln-group-header{
+  display:flex;align-items:center;gap:8px;
+  padding:9px 14px;background:#162338;
+  font-size:12px;font-weight:600;color:#e8f4ff
+}
+.ai-vuln-row{
+  display:flex;align-items:center;gap:8px;
+  padding:7px 14px;border-top:1px solid #1e335228;
+  font-size:12px;color:#8aa8cc
+}
+.ai-vuln-ep{
+  font-family:'SF Mono',Consolas,monospace;font-size:11px;
+  color:#4a6a90;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap
+}
+.ai-vuln-param{
+  background:#162338;border:1px solid #2a4a70;border-radius:3px;
+  font-family:'SF Mono',Consolas,monospace;font-size:10px;
+  color:#00d4ff;padding:1px 6px;flex-shrink:0
+}
+.conf-badge-raw{
+  display:inline-block;font-size:10px;font-weight:700;letter-spacing:1px;
+  padding:2px 8px;border-radius:3px;text-transform:uppercase;flex-shrink:0
+}
+.conf-raw-confirmed{background:rgba(255,62,94,.15);color:#ff3e5e;border:1px solid rgba(255,62,94,.4)}
+.conf-raw-high{background:rgba(255,123,68,.15);color:#ff7b44;border:1px solid rgba(255,123,68,.4)}
+.conf-raw-medium{background:rgba(255,184,0,.12);color:#ffb800;border:1px solid rgba(255,184,0,.4)}
+.conf-raw-low{background:rgba(74,106,144,.15);color:#8aa8cc;border:1px solid #2a4a70}
+.ai-summary-pills{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
 """
 
 _JS = """\
@@ -397,6 +457,37 @@ def _conf_badge(label: str) -> str:
     cls = cls_map.get(label, "conf-potential")
     label_vn = {"Confirmed": "Đã xác nhận", "Likely": "Có khả năng", "Potential": "Tiềm năng"}.get(label, label)
     return f'<span class="conf-badge {cls}">{_safe(label_vn)}</span>'
+
+
+def _conf_badge_raw(confidence: str) -> str:
+    """Badge for raw asset-intelligence confidence values: confirmed/high/medium/low."""
+    key = (confidence or "").lower()
+    cls_map = {
+        "confirmed": "conf-raw-confirmed",
+        "high":      "conf-raw-high",
+        "medium":    "conf-raw-medium",
+        "low":       "conf-raw-low",
+    }
+    label_map = {
+        "confirmed": "CONFIRMED",
+        "high":      "HIGH",
+        "medium":    "MEDIUM",
+        "low":       "LOW",
+    }
+    cls   = cls_map.get(key, "conf-raw-low")
+    label = label_map.get(key, key.upper() or "?")
+    return f'<span class="conf-badge-raw {cls}">{_safe(label)}</span>'
+
+
+def _risk_level(score: float) -> tuple[str, str]:
+    """Return (label, hex_color) for a 0-100 risk score."""
+    if score >= 80:
+        return "Critical", "#ff3e5e"
+    if score >= 60:
+        return "High", "#ff7b44"
+    if score >= 40:
+        return "Medium", "#ffb800"
+    return "Low", "#00ff9d"
 
 
 def _priority_label(cvss: float) -> tuple[str, str]:
@@ -486,6 +577,7 @@ def _render_sidebar(vulns: list[dict]) -> str:
         '<a class="toc-link toc-info" href="#overview">Dashboard</a>'
         '<a class="toc-link toc-info" href="#findings">Lỗ Hổng Bảo Mật</a>'
         '<a class="toc-link toc-info" href="#cve">CVE Intelligence</a>'
+        '<a class="toc-link toc-info" href="#asset-intelligence">Asset Intelligence</a>'
         '<a class="toc-link toc-info" href="#attack-surface">Bề Mặt Tấn Công</a>'
         '<a class="toc-link toc-info" href="#attack-paths">Kịch Bản Tấn Công</a>'
         '<a class="toc-link toc-info" href="#assets">Tài Sản</a>'
@@ -902,6 +994,247 @@ def _render_asset_section(asset_summary: dict) -> str:
     )
 
 
+def _render_asset_intelligence_section(assets: list[dict]) -> str:
+    """
+    Render a collapsible per-host asset intelligence section.
+
+    Each host block shows:
+      - Hostname + risk score bar + risk level badge
+      - Confidence summary (highest-severity finding)
+      - Technology pills
+      - Vulnerabilities grouped by type (with endpoint + confidence per finding)
+      - CVE table with KEV badge
+    """
+    if not assets:
+        return ""
+
+    # Sort by risk_score DESC (should already be sorted from pipeline, enforce anyway)
+    sorted_assets = sorted(assets, key=lambda a: float(a.get("risk_score", 0)), reverse=True)
+
+    VULN_DISPLAY: dict[str, str] = {
+        "sqli":            "SQL Injection",
+        "time_based_sqli": "SQL Injection (Time-Based)",
+        "sqli_error":      "SQL Injection (Error-Based)",
+        "xss":             "Cross-Site Scripting",
+        "xss_reflected":   "XSS (Reflected)",
+        "xss_stored":      "XSS (Stored)",
+        "cmdi":            "Command Injection",
+        "lfi":             "Local File Inclusion",
+        "path_traversal":  "Path Traversal",
+        "ssrf":            "Server-Side Request Forgery",
+        "open_redirect":   "Open Redirect",
+        "info_disclosure": "Information Disclosure",
+    }
+
+    CONF_ORDER = ["confirmed", "high", "medium", "low"]
+
+    def _top_confidence(vulns: list[dict]) -> str:
+        best = "low"
+        for v in vulns:
+            c = (v.get("confidence") or "low").lower()
+            if CONF_ORDER.index(c) < CONF_ORDER.index(best):
+                best = c
+        return best
+
+    parts = [
+        '<a class="anchor" id="asset-intelligence"></a>',
+        '<div class="section">',
+        '<div class="section-title">Asset Intelligence</div>',
+        '<div class="callout callout-info" style="margin-bottom:20px">'
+        '<span>🎯</span>'
+        '<span>Phân tích rủi ro theo từng host — sắp xếp theo điểm rủi ro giảm dần. '
+        'Click vào host để xem chi tiết.</span>'
+        '</div>',
+    ]
+
+    for idx, asset in enumerate(sorted_assets):
+        host       = _safe(asset.get("host", "unknown"))
+        risk_score = float(asset.get("risk_score", 0))
+        risk_label, risk_color = _risk_level(risk_score)
+        vulns      = asset.get("vulnerabilities") or []
+        techs      = asset.get("technologies") or []
+        cves       = asset.get("cves") or []
+        endpoints  = asset.get("endpoints") or []
+        block_id   = f"ai-block-{idx}"
+        top_conf   = _top_confidence(vulns)
+
+        # ── Header ────────────────────────────────────────────────────────
+        parts.append(
+            f'<div class="ai-host-block">'
+            f'<div class="ai-host-header" onclick="toggleDetail(\'{block_id}\')">'
+            # Risk level badge
+            f'<span class="sev-badge" style="color:{risk_color};background:{risk_color}22;'
+            f'border-color:{risk_color}55">{_safe(risk_label)}</span>'
+            # Hostname
+            f'<span class="ai-host-name">{host}</span>'
+            # Top confidence (only when vulns exist)
+        )
+        if vulns:
+            parts.append(_conf_badge_raw(top_conf))
+        # Stats pills
+        parts.append(
+            '<div class="ai-summary-pills">'
+        )
+        if vulns:
+            parts.append(
+                f'<span style="font-size:11px;color:#8aa8cc">'
+                f'🐛 {len(vulns)} vuln{"s" if len(vulns) != 1 else ""}</span>'
+            )
+        if cves:
+            parts.append(
+                f'<span style="font-size:11px;color:#8aa8cc">'
+                f'🔴 {len(cves)} CVE{"s" if len(cves) != 1 else ""}</span>'
+            )
+        parts.append('</div>')
+        # Risk bar + score
+        bar_pct = min(100, max(0, risk_score))
+        parts.append(
+            f'<div class="ai-risk-bar-wrap">'
+            f'<div class="ai-risk-bar" style="width:{bar_pct:.0f}%;background:{risk_color}"></div>'
+            f'</div>'
+            f'<span class="ai-risk-score" style="color:{risk_color}">{risk_score:.0f}</span>'
+            f'<span class="finding-toggle">▶</span>'
+            f'</div>'  # /ai-host-header
+        )
+
+        # ── Collapsible body ──────────────────────────────────────────────
+        parts.append(f'<div class="ai-host-body" id="{block_id}" style="display:none">')
+
+        # Technologies
+        if techs:
+            parts.append('<div class="ai-sub-title">Công Nghệ</div>')
+            parts.append('<div class="tech-pills">')
+            for tech in techs:
+                name    = _safe(tech.get("name", ""))
+                version = _safe(tech.get("version") or "")
+                ver_str = f" <span style='font-size:10px;color:#38bdf8'>{version}</span>" if version else ""
+                parts.append(f'<span class="tech-pill">{name}{ver_str}</span>')
+            parts.append('</div>')
+
+        # Vulnerabilities grouped by type
+        if vulns:
+            parts.append(
+                f'<div class="ai-sub-title">Lỗ Hổng ({len(vulns)})</div>'
+            )
+            # Group by type
+            groups: dict[str, list[dict]] = defaultdict(list)
+            for v in vulns:
+                key = VULN_DISPLAY.get(str(v.get("type", "")), str(v.get("type", "")).replace("_", " ").title())
+                groups[key].append(v)
+
+            # Sort groups: confirmed findings first, then by count
+            def _group_sort_key(item: tuple[str, list[dict]]) -> tuple[int, int]:
+                _, gvulns = item
+                confirmed = sum(1 for gv in gvulns if (gv.get("confidence") or "").lower() == "confirmed")
+                return (-confirmed, -len(gvulns))
+
+            for type_name, group_vulns in sorted(groups.items(), key=_group_sort_key):
+                # Highest severity in this group
+                sev_order = ["critical", "high", "medium", "low"]
+                group_sev = min(
+                    group_vulns,
+                    key=lambda gv: sev_order.index((gv.get("severity") or "low").lower())
+                    if (gv.get("severity") or "low").lower() in sev_order else 3
+                ).get("severity", "Low")
+                g_color = _SEV_COLOR.get(str(group_sev).capitalize(), "#4a6a90")
+                confirmed_count = sum(1 for gv in group_vulns if (gv.get("confidence") or "").lower() == "confirmed")
+
+                parts.append(
+                    f'<div class="ai-vuln-group">'
+                    f'<div class="ai-vuln-group-header">'
+                    + _sev_badge(str(group_sev).capitalize()) +
+                    f'<span style="flex:1">{_safe(type_name)}</span>'
+                    f'<span style="color:#4a6a90;font-size:11px">'
+                    f'{len(group_vulns)} finding{"s" if len(group_vulns) != 1 else ""}</span>'
+                )
+                if confirmed_count > 0:
+                    parts.append(
+                        f'<span class="conf-badge-raw conf-raw-confirmed">'
+                        f'{confirmed_count} confirmed</span>'
+                    )
+                parts.append('</div>')  # /ai-vuln-group-header
+
+                # Sort findings: confirmed first
+                sorted_vulns = sorted(
+                    group_vulns,
+                    key=lambda gv: CONF_ORDER.index((gv.get("confidence") or "low").lower())
+                    if (gv.get("confidence") or "low").lower() in CONF_ORDER else 3
+                )
+                for v in sorted_vulns:
+                    ep    = _safe(v.get("endpoint", ""))
+                    param = _safe(v.get("parameter", ""))
+                    conf  = (v.get("confidence") or "low").lower()
+                    parts.append(
+                        f'<div class="ai-vuln-row">'
+                        + _conf_badge_raw(conf) +
+                        f'<span class="ai-vuln-ep">{ep}</span>'
+                    )
+                    if param:
+                        parts.append(f'<span class="ai-vuln-param">{param}</span>')
+                    parts.append('</div>')
+
+                parts.append('</div>')  # /ai-vuln-group
+        else:
+            parts.append(
+                '<div style="color:#4a6a90;font-size:12px;padding:8px 0">'
+                'Không phát hiện lỗ hổng.</div>'
+            )
+
+        # CVE table
+        if cves:
+            sorted_cves = sorted(cves, key=lambda c: float(c.get("cvss", 0)), reverse=True)
+            kev_count   = sum(1 for c in cves if c.get("is_actively_exploited"))
+            parts.append(
+                f'<div class="ai-sub-title">CVE Intelligence'
+                f' ({len(cves)}'
+                + (f' · <span style="color:#ff3e5e">{kev_count} KEV</span>' if kev_count else '') +
+                ')</div>'
+                '<div style="overflow-x:auto">'
+                '<table class="data-table"><thead><tr>'
+                '<th>CVE ID</th><th>CVSS</th><th>Mức Độ</th>'
+                '<th>KEV</th><th>Công Nghệ</th><th>Mô Tả</th>'
+                '</tr></thead><tbody>'
+            )
+            for c in sorted_cves:
+                cve_id  = _safe(c.get("id", ""))
+                cvss    = float(c.get("cvss", 0))
+                sev     = str(c.get("severity", "Medium")).capitalize()
+                is_kev  = bool(c.get("is_actively_exploited"))
+                tech    = _safe(c.get("technology", ""))
+                summary = _safe(str(c.get("summary", ""))[:160])
+                sev_color = _SEV_COLOR.get(sev, "#4a6a90")
+                kev_cell = '<span class="kev-pill">ĐANG BỊ KHAI THÁC</span>' if is_kev else '—'
+                parts.append(
+                    f'<tr>'
+                    f'<td><code class="code-inline">{cve_id}</code></td>'
+                    f'<td style="color:{sev_color};font-weight:700">{cvss:.1f}</td>'
+                    f'<td>{_sev_badge(sev)}</td>'
+                    f'<td>{kev_cell}</td>'
+                    f'<td>{tech}</td>'
+                    f'<td>{summary}</td>'
+                    f'</tr>'
+                )
+            parts.append('</tbody></table></div>')
+
+        # Endpoints (collapsed, only if > 0)
+        if endpoints:
+            parts.append(
+                f'<div class="ai-sub-title">Endpoints ({len(endpoints)})</div>'
+                '<div class="group-eps">'
+            )
+            for ep in endpoints[:20]:
+                parts.append(f'<span>{_safe(ep)}</span>')
+            if len(endpoints) > 20:
+                parts.append(f'<span style="color:#4a6a90">… +{len(endpoints) - 20} more</span>')
+            parts.append('</div>')
+
+        parts.append('</div>')  # /ai-host-body
+        parts.append('</div>')  # /ai-host-block
+
+    parts.append('</div>')  # /section
+    return "".join(parts)
+
+
 def _render_attack_surface_section(attack_surface: dict) -> str:
     if not attack_surface:
         return ""
@@ -1113,8 +1446,9 @@ def _render(scan_result: dict) -> str:
     asset    = scan_result.get("asset_summary") or {}
     vulns    = scan_result.get("analyzed_vulnerabilities") or []
     cve_list = scan_result.get("cve_intelligence") or []
-    attack_surface = scan_result.get("attack_surface") or {}
-    attack_paths   = scan_result.get("attack_paths") or []
+    attack_surface     = scan_result.get("attack_surface") or {}
+    attack_paths       = scan_result.get("attack_paths") or []
+    asset_intelligence = scan_result.get("asset_intelligence") or []
 
     generated_at = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
 
@@ -1148,6 +1482,9 @@ def _render(scan_result: dict) -> str:
 
     # CVE Intelligence
     parts.append(_render_cve_section(cve_list))
+
+    # Asset Intelligence (per-host breakdown)
+    parts.append(_render_asset_intelligence_section(asset_intelligence))
 
     # Attack Surface Map (deep mode)
     parts.append(_render_attack_surface_section(attack_surface))

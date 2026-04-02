@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
-from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+import logging
 
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel, field_validator
+
+from backend.api.deps import get_current_user
 from scanner.scan_manager.scan_service import (
     get_discovery,
     get_findings,
@@ -12,23 +15,34 @@ from scanner.scan_manager.scan_service import (
 )
 
 router = APIRouter(prefix="/findings", tags=["findings"])
+logger = logging.getLogger(__name__)
 
 
 class FalsePositiveToggle(BaseModel):
     is_false_positive: bool
     false_positive_reason: str = ""
 
+    @field_validator("false_positive_reason", mode="before")
+    @classmethod
+    def limit_reason_length(cls, v: object) -> object:
+        if isinstance(v, str) and len(v) > 2000:
+            raise ValueError("Reason must not exceed 2000 characters")
+        return v
+
 
 def _decode_finding_id(finding_id: str) -> tuple[str, int]:
     parts = finding_id.rsplit("_", 1)
     if len(parts) != 2:
         raise ValueError(f"Invalid finding id: {finding_id!r}")
-    scan_id, idx_str = parts
-    return scan_id, int(idx_str)
+    return parts[0], int(parts[1])
 
 
 @router.put("/{finding_id}/false-positive", summary="Toggle false-positive state for a finding")
-async def toggle_false_positive(finding_id: str, body: FalsePositiveToggle) -> dict[str, object]:
+async def toggle_false_positive(
+    finding_id: str,
+    body: FalsePositiveToggle,
+    _: dict = Depends(get_current_user),
+) -> dict[str, object]:
     try:
         scan_id, idx = _decode_finding_id(finding_id)
     except ValueError:
@@ -51,7 +65,6 @@ async def toggle_false_positive(finding_id: str, body: FalsePositiveToggle) -> d
         findings[idx] = finding
         store_findings(scan_id, findings)
 
-        # Keep domain-level vulnerability counters in sync immediately.
         try:
             from backend.api.routes.assets import register_domain_from_scan
 
@@ -63,11 +76,10 @@ async def toggle_false_positive(finding_id: str, body: FalsePositiveToggle) -> d
                 findings=findings,
             )
         except Exception:
-            pass
+            logger.debug("Domain sync after FP toggle failed", exc_info=True)
 
         finding["id"] = finding_id
         finding["scan_id"] = scan_id
         return finding
 
     return await run_in_threadpool(_toggle)
-

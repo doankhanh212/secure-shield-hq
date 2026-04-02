@@ -5,11 +5,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
+from backend.api.deps import get_current_user
+
 from scanner.scan_manager.scan_service import (
+    get_asset_intelligence,
     get_attack_paths,
     get_attack_surface,
     get_discovery,
@@ -223,7 +226,10 @@ def _generate_format(scan_id: str, fmt: str, scan_meta: dict[str, object]) -> Pa
 # ── GET /reports/{scan_id} ────────────────────────────────────────────────────
 
 @router.get("/{scan_id}", summary="Get report metadata for a scan")
-async def get_report_metadata(scan_id: str) -> dict[str, object]:
+async def get_report_metadata(
+    scan_id: str,
+    _: dict = Depends(get_current_user),
+) -> dict[str, object]:
     """
     Return metadata for all generated report files associated with *scan_id*.
 
@@ -254,6 +260,7 @@ async def download_report(
         str,
         Query(description="Report format: json | csv | html | pdf"),
     ] = "json",
+    _: dict = Depends(get_current_user),
 ) -> FileResponse:
     """
     Download a report for *scan_id* in the requested format.
@@ -299,14 +306,17 @@ async def download_report(
                 job,
             )
 
+        asset_intelligence = await run_in_threadpool(get_asset_intelligence, scan_id)
+
         scan_meta: dict[str, object] = {
-            "target":           job.target,
-            "mode":             job.mode,
-            "started_at":       job.created_at,
-            "discovery":        discovery,
-            "cve_intelligence": cve_intelligence,
-            "attack_surface":   attack_surface,
-            "attack_paths":     attack_paths,
+            "target":              job.target,
+            "mode":                job.mode,
+            "started_at":          job.created_at,
+            "discovery":           discovery,
+            "cve_intelligence":    cve_intelligence,
+            "attack_surface":      attack_surface,
+            "attack_paths":        attack_paths,
+            "asset_intelligence":  asset_intelligence,
         }
         try:
             candidate = await run_in_threadpool(

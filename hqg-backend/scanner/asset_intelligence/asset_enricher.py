@@ -98,6 +98,15 @@ def attach_vulnerabilities(
             continue
         seen.add(key)
 
+        # verification_steps may be a list or a newline-separated string
+        raw_steps = f.get("verification_steps")
+        if isinstance(raw_steps, list):
+            vsteps: list[str] = [str(s) for s in raw_steps if s]
+        elif isinstance(raw_steps, str) and raw_steps.strip():
+            vsteps = [s.strip() for s in raw_steps.splitlines() if s.strip()]
+        else:
+            vsteps = []
+
         asset.vulnerabilities.append(
             Vulnerability(
                 type=vtype,
@@ -106,6 +115,15 @@ def attach_vulnerabilities(
                 confidence=str(f.get("confidence", "Medium")),
                 parameter=param,
                 detection_method=str(f.get("detection_method", "")),
+                payload=str(f.get("payload", "") or f.get("poc", "") or ""),
+                evidence=str(f.get("evidence", "") or ""),
+                explanation=str(f.get("explanation", "") or ""),
+                impact=str(f.get("impact", "") or ""),
+                remediation=str(f.get("remediation", "") or f.get("fix_recommendation", "") or ""),
+                cwe_id=str(f.get("cwe_id", "") or ""),
+                cvss_score=float(f.get("cvss_score", 0.0) or 0.0),
+                owasp_category=str(f.get("owasp_category", "") or ""),
+                verification_steps=vsteps,
             )
         )
 
@@ -160,6 +178,7 @@ def attach_cves(
                 severity=str(rec.get("severity", "Medium")),
                 technology=rec_tech,
                 summary=str(rec.get("summary", ""))[:200],
+                is_actively_exploited=bool(rec.get("is_actively_exploited", False)),
             )
         )
 

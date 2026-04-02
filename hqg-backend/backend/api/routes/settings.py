@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 
 import httpx
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Depends
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 import redis as _redis
 
+from backend.api.deps import get_current_user
 from backend.config import get_settings
 
 router = APIRouter(prefix="/settings", tags=["settings"])
+logger = logging.getLogger(__name__)
 
 
 def _r() -> _redis.Redis:
@@ -21,15 +24,10 @@ def _r() -> _redis.Redis:
 
 _REDIS_SETTINGS_KEY = "hqg:settings"
 
-# Keys that are persisted to Redis (non-sensitive)
 _PERSIST_KEYS = {
-    "platform_name",
-    "language",
-    "daily_scans",
-    "ai_analysis",
-    "distributed_scanning",
-    "email_notifications",
-    "scan_workers",
+    "platform_name", "language", "daily_scans",
+    "ai_analysis", "distributed_scanning",
+    "email_notifications", "scan_workers",
 }
 
 
@@ -39,6 +37,7 @@ def _load_persisted() -> dict[str, object]:
         raw = r.get(_REDIS_SETTINGS_KEY)
         return json.loads(raw) if raw else {}
     except Exception:
+        logger.debug("Failed to load settings from Redis", exc_info=True)
         return {}
 
 
@@ -47,11 +46,13 @@ def _save_persisted(data: dict[str, object]) -> None:
         r = _r()
         r.set(_REDIS_SETTINGS_KEY, json.dumps(data))
     except Exception:
-        pass
+        logger.warning("Failed to save settings to Redis", exc_info=True)
 
 
 @router.get("", summary="Get current platform settings")
-async def get_platform_settings() -> dict[str, object]:
+async def get_platform_settings(
+    _: dict = Depends(get_current_user),
+) -> dict[str, object]:
     settings = get_settings()
     persisted = await run_in_threadpool(_load_persisted)
 
@@ -68,17 +69,17 @@ async def get_platform_settings() -> dict[str, object]:
 
 
 @router.put("", summary="Update platform settings")
-async def update_platform_settings(data: dict = Body(...)) -> dict[str, object]:
+async def update_platform_settings(
+    data: dict = Body(...),
+    _: dict = Depends(get_current_user),
+) -> dict[str, object]:
     settings = get_settings()
 
-    # Handle NVD API key — stored in environment, not Redis
     if "nvd_api_key" in data and data["nvd_api_key"]:
         key_value = str(data["nvd_api_key"]).strip()
         os.environ["NVD_API_KEY"] = key_value
-        # Update the cached settings object
         object.__setattr__(settings, "nvd_api_key", key_value)
 
-    # Persist non-sensitive settings to Redis
     persisted = await run_in_threadpool(_load_persisted)
     for k in _PERSIST_KEYS:
         if k in data:
@@ -87,20 +88,15 @@ async def update_platform_settings(data: dict = Body(...)) -> dict[str, object]:
 
     return {
         "status": "ok",
-        "nvd_api_key_configured": bool(
-            settings.nvd_api_key or os.environ.get("NVD_API_KEY")
-        ),
+        "nvd_api_key_configured": bool(settings.nvd_api_key or os.environ.get("NVD_API_KEY")),
     }
 
 
-# ── POST /settings/verify-nvd-key ────────────────────────────────────────────
-
-@router.post("/verify-nvd-key", summary="Verify an NVD API key by sending a live probe")
-async def verify_nvd_key(data: dict = Body(...)) -> object:
-    """
-    Send a minimal probe to the NVD REST API and confirm the provided key is valid.
-    Returns ``{ "valid": true|false, "message": "..." }``.
-    """
+@router.post("/verify-nvd-key", summary="Verify an NVD API key")
+async def verify_nvd_key(
+    data: dict = Body(...),
+    _: dict = Depends(get_current_user),
+) -> object:
     api_key = str(data.get("api_key", "")).strip()
     if not api_key:
         return {"valid": False, "message": "Invalid API key"}
@@ -119,6 +115,7 @@ async def verify_nvd_key(data: dict = Body(...)) -> object:
             )
         return {"valid": False, "message": f"NVD returned {response.status_code}"}
     except httpx.TimeoutException:
-        return {"valid": False, "message": "Connection failed"}
+        return {"valid": False, "message": "Connection timed out"}
     except Exception as exc:
-        return {"valid": False, "message": f"Connection failed: {exc}"}
+        logger.debug("NVD key verification failed: %s", exc)
+        return {"valid": False, "message": "Connection failed"}

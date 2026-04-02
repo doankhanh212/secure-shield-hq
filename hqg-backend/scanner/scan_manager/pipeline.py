@@ -338,6 +338,24 @@ async def run_pipeline(
             logger.warning("scan=%s verification layer failed: %s", scan_id, _vfy_exc)
 
     # ------------------------------------------------------------------ #
+    # Knowledge-base enrichment — fills description / impact / remediation#
+    # for every finding using the vulnerability template library.         #
+    # Runs unconditionally; values set by upstream stages are preserved.  #
+    # ------------------------------------------------------------------ #
+    if all_findings:
+        try:
+            from scanner.knowledge_base.vuln_templates import enrich_finding as _enrich
+
+            all_findings = [_enrich(f) for f in all_findings]
+            logger.info(
+                "scan=%s knowledge-base enrichment complete: %d findings",
+                scan_id,
+                len(all_findings),
+            )
+        except Exception as _enr_exc:
+            logger.warning("scan=%s knowledge-base enrichment failed: %s", scan_id, _enr_exc)
+
+    # ------------------------------------------------------------------ #
     # Stage 5 – AI Analysis                                               #
     # ------------------------------------------------------------------ #
     _set_stage(scan_id, ScanStage.AI_ANALYSIS, 0.84)

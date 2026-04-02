@@ -1,17 +1,28 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Optional
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 
+from backend.core.auth import verify_token
 from scanner.scan_manager.scan_service import get_scan
 
 router = APIRouter(tags=["websocket"])
 
 
 @router.websocket("/ws/scans/{scan_id}")
-async def scan_progress_ws(websocket: WebSocket, scan_id: str) -> None:
+async def scan_progress_ws(
+    websocket: WebSocket,
+    scan_id: str,
+    token: Optional[str] = Query(default=None),
+) -> None:
+    # Validate bearer token passed as query param (WS cannot send custom headers)
+    if not token or not verify_token(token):
+        await websocket.close(code=4401)
+        return
+
     await websocket.accept()
     try:
         while True:

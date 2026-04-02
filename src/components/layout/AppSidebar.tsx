@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Shield,
+  BrainCircuit,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { key: "nav.overview", icon: LayoutDashboard, path: "/" },
   { key: "nav.assets", icon: Globe, path: "/assets" },
+  { key: "nav.assetIntelligence", icon: BrainCircuit, path: "/asset-intelligence" },
   { key: "nav.scans", icon: Radar, path: "/scans" },
   { key: "nav.vulnerabilities", icon: ShieldAlert, path: "/vulnerabilities" },
   { key: "nav.reports", icon: FileText, path: "/reports" },

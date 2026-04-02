@@ -1,0 +1,25 @@
+# ── Frontend build context ignore ────────────────────────────────────
+# Applied when building Dockerfile.frontend from the repo root.
+
+node_modules/
+dist/
+.venv/
+*.pyc
+__pycache__/
+
+# Git / editor
+.git/
+.gitignore
+.claude/
+
+# Backend (not needed for frontend build)
+hqg-backend/
+
+# Env files (secrets must not be baked into the image)
+.env
+.env.*
+!.env.example
+
+# Logs / temp
+*.log
+*.tmp

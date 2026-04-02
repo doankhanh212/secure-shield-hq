@@ -5,10 +5,11 @@ import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
+from backend.api.deps import get_current_user
 from backend.config import get_settings
 from scanner.scan_manager.scan_service import get_discovery, get_scan
 
@@ -179,7 +180,7 @@ def register_domain_from_scan(
 # ── API endpoints ────────────────────────────────────────────────────────────
 
 @router.get("", summary="List all domains")
-async def list_assets() -> list[dict[str, object]]:
+async def list_assets(_: dict = Depends(get_current_user)) -> list[dict[str, object]]:
     def _load() -> list[dict[str, object]]:
         from scanner.scan_manager.scan_service import get_findings
 
@@ -215,7 +216,7 @@ async def list_assets() -> list[dict[str, object]]:
 
 
 @router.post("", status_code=201, summary="Add a domain manually")
-async def create_asset(body: DomainCreate) -> dict[str, object]:
+async def create_asset(body: DomainCreate, _: dict = Depends(get_current_user)) -> dict[str, object]:
     def _create() -> dict[str, object]:
         r = _r()
         domain_name = _extract_domain(body.url)
@@ -252,7 +253,7 @@ async def create_asset(body: DomainCreate) -> dict[str, object]:
 
 
 @router.delete("/{domain_id}", summary="Delete a domain")
-async def delete_asset(domain_id: str) -> dict[str, str]:
+async def delete_asset(domain_id: str, _: dict = Depends(get_current_user)) -> dict[str, str]:
     def _delete() -> None:
         r = _r()
         # domain_id could be either a UUID or a domain name
@@ -272,7 +273,7 @@ async def delete_asset(domain_id: str) -> dict[str, str]:
 # ── Scan-based discovery (existing) ─────────────────────────────────────────
 
 @router.get("/{scan_id}/discovery", summary="Get asset discovery results for a scan")
-async def get_assets_discovery(scan_id: str) -> dict[str, object]:
+async def get_assets_discovery(scan_id: str, _: dict = Depends(get_current_user)) -> dict[str, object]:
     job = await run_in_threadpool(get_scan, scan_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Scan {scan_id!r} not found")
@@ -292,7 +293,7 @@ async def get_assets_discovery(scan_id: str) -> dict[str, object]:
 # ── Domain report (per-domain, active findings only) ────────────────────────
 
 @router.get("/{domain_id}/report", summary="Download a domain-scoped report excluding false positives")
-async def domain_report(domain_id: str, format: str = "html") -> object:  # noqa: A002
+async def domain_report(domain_id: str, format: str = "html", _: dict = Depends(get_current_user)) -> object:  # noqa: A002
     """
     Generate and download a report for the most-recent scan of *domain_id*.
     False-positive findings are excluded automatically.

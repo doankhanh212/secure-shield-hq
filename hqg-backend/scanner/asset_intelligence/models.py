@@ -40,6 +40,15 @@ class Vulnerability:
     confidence: str
     parameter: str = ""
     detection_method: str = ""
+    payload: str = ""
+    evidence: str = ""
+    explanation: str = ""
+    impact: str = ""
+    remediation: str = ""
+    cwe_id: str = ""
+    cvss_score: float = 0.0
+    owasp_category: str = ""
+    verification_steps: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -49,6 +58,15 @@ class Vulnerability:
             "confidence": self.confidence,
             "parameter": self.parameter,
             "detection_method": self.detection_method,
+            "payload": self.payload,
+            "evidence": self.evidence,
+            "explanation": self.explanation,
+            "impact": self.impact,
+            "remediation": self.remediation,
+            "cwe_id": self.cwe_id,
+            "cvss_score": self.cvss_score,
+            "owasp_category": self.owasp_category,
+            "verification_steps": self.verification_steps,
         }
 
 
@@ -61,6 +79,7 @@ class CVE:
     severity: str
     technology: str = ""
     summary: str = ""
+    is_actively_exploited: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -69,6 +88,7 @@ class CVE:
             "severity": self.severity,
             "technology": self.technology,
             "summary": self.summary,
+            "is_actively_exploited": self.is_actively_exploited,
         }
 
 

@@ -192,6 +192,13 @@ def _build_scan_result_dict(
     })
     asset_summary["total_endpoints"] = _unique_eps
 
+    # Asset intelligence: list of per-host dicts from the pipeline
+    asset_intelligence_raw = meta.get("asset_intelligence")
+    if isinstance(asset_intelligence_raw, list):
+        asset_intelligence = [a for a in asset_intelligence_raw if isinstance(a, dict)]
+    else:
+        asset_intelligence = []
+
     return {
         "scan_id":        scan_id,
         "target":         report.executive_summary.target,
@@ -206,6 +213,7 @@ def _build_scan_result_dict(
         "attack_surface": meta.get("attack_surface") or {},
         "attack_paths": meta.get("attack_paths") or [],
         "false_positive_removed": int(meta.get("false_positive_removed", 0)),
+        "asset_intelligence": asset_intelligence,
     }
 
 

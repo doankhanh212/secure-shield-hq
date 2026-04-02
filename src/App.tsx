@@ -12,6 +12,7 @@ import SecurityScans from "./pages/SecurityScans.tsx";
 import Vulnerabilities from "./pages/Vulnerabilities.tsx";
 import Reports from "./pages/Reports.tsx";
 import SettingsPage from "./pages/Settings.tsx";
+import AssetIntelligence from "./pages/AssetIntelligence.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import Login from "./pages/Login.tsx";
 import { isAuthenticated } from "@/services/api";
@@ -37,6 +38,7 @@ const App = () => (
               <Route path="/assets" element={<ProtectedRoute><AssetManagement /></ProtectedRoute>} />
               <Route path="/scans" element={<ProtectedRoute><SecurityScans /></ProtectedRoute>} />
               <Route path="/vulnerabilities" element={<ProtectedRoute><Vulnerabilities /></ProtectedRoute>} />
+              <Route path="/asset-intelligence" element={<ProtectedRoute><AssetIntelligence /></ProtectedRoute>} />
               <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />

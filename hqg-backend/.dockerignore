@@ -1,14 +1,33 @@
+# ── Backend build context ignore ─────────────────────────────────────
+
 .venv/
 __pycache__/
+**/__pycache__/
 *.pyc
 *.pyo
-.git/
-.env
-.env.*
+*.pyd
 *.egg-info/
+
+.git/
+.gitignore
+
+# Local env files (docker-compose passes env vars directly)
+.env
+.env.docker
+
+# Test / dev artefacts
 dist/
 build/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+*.log
+
+# Node (shouldn't be here, but just in case)
 node_modules/
+
+# Generated reports (mounted as a volume in production)
+test_report*.html
+deep_scan_report*.html
+dvwa_report*.html
+scan-*.html

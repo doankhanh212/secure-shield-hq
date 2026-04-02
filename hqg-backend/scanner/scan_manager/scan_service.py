@@ -141,6 +141,17 @@ def get_attack_paths(scan_id: str) -> list[dict[str, object]]:
     return json.loads(raw) if raw else []
 
 
+def store_asset_intelligence(scan_id: str, data: list[dict[str, object]]) -> None:
+    r = _redis_client()
+    r.set(f"scan:{scan_id}:asset_intelligence", json.dumps(data), ex=86400 * 7)
+
+
+def get_asset_intelligence(scan_id: str) -> list[dict[str, object]]:
+    r = _redis_client()
+    raw = r.get(f"scan:{scan_id}:asset_intelligence")
+    return json.loads(raw) if raw else []
+
+
 def _persist(job: ScanJob) -> None:
     r = _redis_client()
     data = {

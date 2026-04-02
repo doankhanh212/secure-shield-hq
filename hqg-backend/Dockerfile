@@ -1,7 +1,10 @@
-# ── HQG Web Security Platform ─────────────────────────────────────
+# ── HQG Backend — production image ─────────────────────────────────
+# Single image used for both the API server and the Celery worker.
+# The CMD is overridden per-service in docker-compose.yml.
 FROM python:3.11-slim AS base
 
-# WeasyPrint system dependencies (pango, gobject, cairo, fonts)
+# ── System deps ──────────────────────────────────────────────────────
+# WeasyPrint needs pango/cairo; curl is used by the healthcheck.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         libpango-1.0-0 \
@@ -17,15 +20,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install Python deps first (layer caching)
+# ── Python deps (cached layer) ───────────────────────────────────────
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir .
 
-# Copy application source
+# ── Application source ───────────────────────────────────────────────
 COPY . .
 
 EXPOSE 8000
 
-# Default: run the API server
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Default: API server.  Worker overrides this in docker-compose.yml.
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

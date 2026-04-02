@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
 import logging
+import time
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.routes import assets, auth, dashboard, domains, findings, scans, vulnerabilities
@@ -43,11 +44,58 @@ def create_app() -> FastAPI:
         debug=settings.app_debug,
         version="0.1.0",
         lifespan=lifespan,
+        # Hide schema endpoints in production
+        docs_url="/docs" if settings.app_debug else None,
+        redoc_url="/redoc" if settings.app_debug else None,
+        openapi_url="/openapi.json" if settings.app_debug else None,
     )
 
+    # ── Security headers middleware ───────────────────────────────────────
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next) -> Response:
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        if not settings.app_debug:
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
+        return response
+
+    # ── In-process rate limiting (login endpoint) ─────────────────────────
+    # Simple sliding-window counter stored in a module-level dict.
+    # For multi-process deployments use a Redis-backed solution instead.
+    _rate_store: dict[str, list[float]] = {}
+    _RATE_WINDOW = 60.0   # seconds
+    _RATE_LIMIT   = 20    # requests per window per IP
+
+    @app.middleware("http")
+    async def rate_limit_login(request: Request, call_next) -> Response:
+        if request.url.path == f"{settings.api_v1_prefix}/auth/login":
+            ip = request.client.host if request.client else "unknown"
+            now = time.monotonic()
+            window = _rate_store.setdefault(ip, [])
+            # Evict timestamps outside the current window
+            _rate_store[ip] = [t for t in window if now - t < _RATE_WINDOW]
+            if len(_rate_store[ip]) >= _RATE_LIMIT:
+                return Response(
+                    content='{"detail":"Too many login attempts. Try again later."}',
+                    status_code=429,
+                    media_type="application/json",
+                )
+            _rate_store[ip].append(now)
+        return await call_next(request)
+
+    # ALLOWED_ORIGINS env var: comma-separated list of permitted origins.
+    # Falls back to localhost defaults for local development.
+    _raw_origins = settings.allowed_origins or "http://localhost:3000,http://localhost:5173"
+    _origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://localhost:3000"],
+        allow_origins=_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

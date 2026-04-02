@@ -9,6 +9,7 @@ from scanner.scan_manager.pipeline import ScanCancelledError, run_pipeline
 from scanner.scan_manager.scan_modes import get_mode
 from scanner.scan_manager.scan_service import (
     get_scan,
+    store_asset_intelligence,
     store_attack_paths,
     store_attack_surface,
     store_discovery,
@@ -72,6 +73,8 @@ def start_scan(self, scan_id: str, target: str, mode: str = "standard") -> dict[
             store_attack_surface(scan_id, result["attack_surface"])
         if result.get("attack_paths"):
             store_attack_paths(scan_id, result["attack_paths"])
+        if result.get("asset_intelligence"):
+            store_asset_intelligence(scan_id, result["asset_intelligence"])
 
         # Auto-register domain
         try:

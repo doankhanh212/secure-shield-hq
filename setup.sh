@@ -110,12 +110,23 @@ echo ""
 echo -e "${YELLOW}Set ALLOWED_ORIGINS (CORS whitelist for the frontend):${NC}"
 echo -e "  Current value: ${CYAN}${CURRENT_ORIGINS}${NC}"
 echo -e "  Detected server IP: ${CYAN}${DEFAULT_IP}${NC}"
-read -rp "  Enter value [leave blank to keep current, or enter IP/domain]: " ORIGINS_INPUT
+read -rp "  Enter value [leave blank to auto-use detected IP, or enter IP/domain]: " ORIGINS_INPUT
 if [[ -n "$ORIGINS_INPUT" ]]; then
+  # If user entered just an IP or domain (no scheme), prefix http://
+  if [[ ! "$ORIGINS_INPUT" =~ ^https?:// ]]; then
+    ORIGINS_INPUT="http://${ORIGINS_INPUT}:3000"
+  fi
   sed -i "s|^ALLOWED_ORIGINS=.*|ALLOWED_ORIGINS=${ORIGINS_INPUT}|" .env
   success "ALLOWED_ORIGINS updated to: ${ORIGINS_INPUT}"
 else
-  info "ALLOWED_ORIGINS unchanged: ${CURRENT_ORIGINS}"
+  # Auto-set to detected IP (most common case for VPS deployments)
+  if [[ "$DEFAULT_IP" != "YOUR_SERVER_IP" && "$DEFAULT_IP" != "127.0.0.1" ]]; then
+    AUTO_ORIGIN="http://${DEFAULT_IP}:3000"
+    sed -i "s|^ALLOWED_ORIGINS=.*|ALLOWED_ORIGINS=${AUTO_ORIGIN}|" .env
+    success "ALLOWED_ORIGINS auto-set to: ${AUTO_ORIGIN}"
+  else
+    info "ALLOWED_ORIGINS unchanged: ${CURRENT_ORIGINS}"
+  fi
 fi
 
 # ── 6. Configure firewall (ufw) ───────────────────────────────────────────────

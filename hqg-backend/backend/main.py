@@ -19,8 +19,26 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     # Startup: probe infrastructure clients.
-    await redis_client.ping()
-    await seed_admin_user()
+    # Wrapped in retries so the app survives if Redis takes a moment
+    # to accept connections after Docker reports it "healthy".
+    for attempt in range(1, 6):
+        try:
+            await redis_client.ping()
+            logger.info("Redis connected (attempt %d)", attempt)
+            break
+        except Exception as exc:
+            if attempt < 5:
+                logger.warning("Redis ping failed (attempt %d): %s — retrying in 3s", attempt, exc)
+                import asyncio
+                await asyncio.sleep(3)
+            else:
+                logger.error("Redis unreachable after 5 attempts — starting without seed")
+
+    try:
+        await seed_admin_user()
+    except Exception as exc:
+        logger.error("Could not seed admin user: %s", exc)
+
     try:
         await es_client.ping()
         logger.info("Elasticsearch connected")

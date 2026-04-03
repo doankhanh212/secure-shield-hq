@@ -144,14 +144,32 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
   const res = await fetch(url, { ...init, headers });
+
   if (res.status === 401) {
-    logout();
-    return undefined as unknown as T;
+    // Token expired or invalid — force re-login
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("user_role");
+    localStorage.removeItem("username");
+    window.location.href = "/login";
+    throw new Error("Session expired. Please log in again.");
   }
+
+  if (res.status === 429) {
+    throw new Error("Quá nhiều yêu cầu. Vui lòng thử lại sau.");
+  }
+
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`API ${res.status}: ${text}`);
+    let detail = `Lỗi ${res.status}`;
+    try {
+      const body = await res.json();
+      if (body?.detail) detail = body.detail;
+    } catch {
+      const text = await res.text().catch(() => "");
+      if (text) detail = text;
+    }
+    throw new Error(detail);
   }
+
   return res.json();
 }
 
@@ -166,7 +184,17 @@ export async function login(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
   });
-  if (!res.ok) throw new Error("Sai tên đăng nhập hoặc mật khẩu");
+  if (res.status === 429) {
+    throw new Error("Quá nhiều lần thử. Vui lòng chờ 1 phút rồi thử lại.");
+  }
+  if (!res.ok) {
+    let msg = "Sai tên đăng nhập hoặc mật khẩu";
+    try {
+      const body = await res.json();
+      if (body?.detail) msg = body.detail;
+    } catch {}
+    throw new Error(msg);
+  }
   const data = await res.json();
   localStorage.setItem("access_token", data.access_token);
   localStorage.setItem("user_role", data.role);
@@ -182,7 +210,37 @@ export function logout(): void {
 }
 
 export function isAuthenticated(): boolean {
-  return !!localStorage.getItem("access_token");
+  const token = localStorage.getItem("access_token");
+  if (!token) return false;
+  // Decode JWT payload (base64url) and check expiry without a library
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    if (payload.exp && Date.now() / 1000 >= payload.exp) {
+      // Token expired — clear storage silently
+      localStorage.removeItem("access_token");
+      localStorage.removeItem("user_role");
+      localStorage.removeItem("username");
+      return false;
+    }
+  } catch {
+    // Malformed token — treat as unauthenticated
+    localStorage.removeItem("access_token");
+    return false;
+  }
+  return true;
+}
+
+export function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<{ message: string }> {
+  return request(`${API_BASE}/auth/change-password`, {
+    method: "POST",
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  });
 }
 
 // ── Scans ──────────────────────────────────────────────────────────────────

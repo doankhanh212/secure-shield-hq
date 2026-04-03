@@ -1,50 +1,68 @@
 # HQG Web Security Platform — Tài Liệu Kỹ Thuật
 
+> **Phiên bản:** 1.1 — Cập nhật sau đợt tối ưu hoá production (2026-04-03)
+
+---
+
 ## 1. Tổng Quan Kiến Trúc
 
 ### 1.1 Tech Stack
 
-| Layer     | Technology                                    |
-|-----------|-----------------------------------------------|
-| Backend   | FastAPI + Celery + Redis                      |
-| Frontend  | React 18 + TailwindCSS + Radix UI + TanStack Query |
-| Storage   | Redis (primary store)                         |
-| Container | Docker Compose (5 services)                   |
-| Scanner   | Custom Python detection engine (async, httpx)  |
-| Build     | Vite + SWC + TypeScript                        |
+| Layer     | Technology                                           |
+|-----------|------------------------------------------------------|
+| Backend   | FastAPI 0.115 + Celery 5.4 + Redis 7                 |
+| Frontend  | React 18 + TailwindCSS + Radix UI + TanStack Query   |
+| Storage   | Redis (primary store — scans, findings, users, settings) |
+| Container | Docker Compose (4 services production)               |
+| Scanner   | Custom Python detection engine (async, httpx)         |
+| Build     | Vite + SWC + TypeScript                              |
+| Auth      | JWT HS256, 8h expiry, bcrypt passwords               |
 
 ### 1.2 System Architecture
 
 ```
-┌──────────────┐      ┌──────────────┐      ┌───────────────┐
-│  React SPA   │─────▶│  FastAPI API  │─────▶│ Celery Worker │
-│  :5173       │◀─ws──│  :8000       │◀─────│  (fork pool)  │
-└──────────────┘      └──────┬───────┘      └──────┬────────┘
-                             │                      │
-                             ▼                      ▼
-                      ┌──────────────┐       ┌─────────────┐
-                      │    Redis     │       │   Scanner   │
-                      │  :6379      │       │  Pipeline   │
-                      │  (queue +   │       │  (10 stages)│
-                      │   store)    │       └─────────────┘
-                      └──────────────┘
+Internet
+   │
+   ├── :3000 ──► frontend (nginx)
+   │                  │
+   │            /api/* proxy ──► backend:8000
+   │
+   └── :8000 ──► backend (FastAPI) [direct API access]
+                      │
+            ┌─────────┼──────────┐
+            │         │          │
+         redis      worker    scheduler
+        (broker)   (Celery)   (optional)
 ```
 
-### 1.3 Deployment
+### 1.3 Deployment — Docker Compose (Production)
 
-Docker Compose services:
+4 services production tại repo root `docker-compose.yml`:
 
-| Service   | Image                      | Port | Mô tả                       |
-|-----------|----------------------------|------|------------------------------|
-| api       | custom (Dockerfile)        | 8000 | FastAPI application server   |
-| worker    | custom (Dockerfile)        | —    | Celery worker (scan tasks)   |
-| redis     | redis:7-alpine             | 6379 | Message queue + data store   |
-| dvwa      | ghcr.io/digininja/dvwa     | 8080 | Vulnerable test target       |
-| dvwa-db   | mariadb:10                 | —    | MySQL for DVWA               |
+| Service   | Image                   | Port | Mô tả                        |
+|-----------|-------------------------|------|-------------------------------|
+| redis     | redis:7-alpine          | —    | Message queue + data store (expose internal only) |
+| backend   | custom (hqg-backend/Dockerfile) | 8000 | FastAPI API server (2 workers) |
+| worker    | custom (hqg-backend/Dockerfile) | —    | Celery worker (4 concurrency, tất cả queues) |
+| frontend  | Dockerfile.frontend (nginx) | 3000 | React SPA + API reverse proxy |
 
-Celery queues: `queue_default`, `queue_scan_manager`, `queue_discovery`, `queue_crawler`,
-`queue_payload`, `queue_detection`, `queue_cve_intelligence`, `queue_template`,
-`queue_ai`, `queue_reporting`, `queue_scheduler`.
+> **Lưu ý:** `hqg-backend/docker-compose.yml` là file cũ dùng cho dev local (có thêm DVWA). File production là `docker-compose.yml` ở root.
+
+Celery queues:
+```
+queue_default, queue_scan_manager, queue_discovery, queue_crawler,
+queue_payload, queue_detection, queue_cve_intelligence, queue_template,
+queue_ai, queue_reporting, queue_scheduler
+```
+
+### 1.4 Nginx (Frontend Container)
+
+File `nginx.conf` phục vụ:
+- Static React SPA tại `/`
+- Proxy `/api/*` → `backend:8000` (Docker internal DNS)
+- Proxy WebSocket `/api/v1/ws/*` với `Upgrade` header
+- SPA fallback: mọi route trả về `index.html`
+- Cache static assets: 1 năm (`immutable`)
 
 ---
 
@@ -55,19 +73,22 @@ Celery queues: `queue_default`, `queue_scan_manager`, `queue_discovery`, `queue_
 ```
 Target URL
   │
-  ├─ 1. Asset Discovery      (subdomain, DNS, tech fingerprint)
-  ├─ 2. Web Crawling          (endpoints, forms, parameters)
-  ├─ 3. Template Scan         (misconfig, exposed files)
-  ├─ 4. Payload Injection     (SQLi, XSS, CmdI, SSRF, LFI payloads)
-  ├─ 5. Detection Engine      (error_pattern, reflection, timing, diff)
-  ├─ 6. AI Analysis           (OWASP/CWE/CVSS mapping + explanation)
-  ├─ 7. CVE Intelligence      (NVD + CISA KEV cross-reference)
-  ├─ 8. Attack Surface Graph  [Deep only]
-  ├─ 9. Attack Path Analysis  [Deep only]
-  └─ 10. Reporting            (HTML self-contained report)
+  ├─ 1.  Asset Discovery       (subdomain, DNS, tech fingerprint)
+  ├─ 2.  Web Crawling           (endpoints, forms, parameters)
+  ├─ 3.  Template Scan          (misconfig, exposed files, security headers)
+  ├─ 4.  Payload Injection      (SQLi, XSS, CmdI, SSRF, LFI payloads)
+  ├─ 5.  Detection Engine       (error_pattern, reflection, timing, diff)
+  ├─ 6.  Verification Layer     (multi-step false-positive reduction)
+  ├─ 7.  Knowledge-Base Enrich  (description, impact, remediation từ templates)
+  ├─ 8.  AI Analysis            (OWASP/CWE/CVSS mapping + explanation)
+  ├─ 9.  CVE Intelligence       (NVD + CISA KEV cross-reference)
+  ├─ 10. Attack Surface Graph   [Deep only]
+  ├─ 11. Attack Path Analysis   [Deep only]
+  ├─ 12. Asset Intelligence     (per-host grouping, risk score)
+  └─ 13. Reporting              (HTML self-contained report)
 ```
 
-Stages 8–9 chỉ chạy trong chế độ Deep Intelligence.
+Stages 10–11 chỉ chạy trong chế độ Deep Intelligence.
 
 ### 2.2 Chi Tiết Từng Stage
 
@@ -101,33 +122,51 @@ Stages 8–9 chỉ chạy trong chế độ Deep Intelligence.
 - Methods: `error_pattern`, `reflection`, `time_based`, `diff`, `baseline_comparison`
 - Key files: `response_analyzer.py`, `error_patterns.py`, `diff_analyzer.py`, `time_analyzer.py`, `tasks.py`
 
-**Stage 6 — AI Analyzer** (`ai/analyzer/`)
+**Stage 6 — Verification Layer** (`scanner/verification/`)
+- Input: raw findings dicts
+- Output: findings với `confidence` (updated), `verification_steps`, `verified: bool`
+- Logic: per-type multi-step HTTP probes (SQLi boolean, XSS reflection, CmdI output, SSRF divergence)
+- Runs concurrently via `asyncio.gather`; non-fatal (failure giữ nguyên findings gốc)
+- Key files: `verifier.py`, `strategies.py`
+
+**Stage 7 — Knowledge-Base Enrichment** (`scanner/knowledge_base/`)
+- Input: verified findings (có thể thiếu `explanation`, `impact`, `remediation`)
+- Output: findings đảm bảo luôn có đủ 4 trường hiển thị UI
+- Logic: lookup `VULN_TEMPLATES` dict theo `vulnerability_type`; chỉ điền các trường còn trống (không ghi đè AI output)
+- Fallback: generic template cho mọi vuln type chưa có trong dict
+- Key file: `vuln_templates.py` — 11 templates (sqli, time_based_sqli, xss, xss_reflected, xss_stored, cmdi, time_based_cmdi, ssrf, lfi, path_traversal, info_disclosure, open_redirect) + generic fallback
+
+**Stage 8 — AI Analyzer** (`ai/analyzer/`)
 - Input: raw findings
 - Output: `AnalyzedVulnerability` objects (enriched với OWASP/CWE/CVSS)
-- Method: Rule-based (deterministic, zero cost, không cần LLM)
+- Method: Rule-based (deterministic, zero cost, không cần LLM, < 1ms per finding)
 - Key files: `analyzer.py`, `vuln_mapping.py`, `explanation_engine.py`, `confidence_scorer.py`
+- Chạy sau Knowledge-Base; output AI ghi đè template nếu có
 
-**Stage 7 — CVE Intelligence** (`scanner/cve_intelligence/`)
+**Stage 9 — CVE Intelligence** (`scanner/cve_intelligence/`)
 - Input: technologies detected
 - Output: CVE records từ NVD + CISA KEV cross-reference
-- Logic: tech parse → NVD 2.0 API → KEV catalog → enrich findings
+- Logic: tech parse → NVD 2.0 API → KEV catalog → enrich findings với `is_actively_exploited`
 - Key files: `nvd_client.py`, `kev_client.py`, `tech_parser.py`
 
-**Stage 8 — Attack Surface Graph** (`scanner/attack_surface/graph.py`) [Deep only]
+**Stage 10 — Attack Surface Graph** (`scanner/attack_surface/graph.py`) [Deep only]
 - Input: all findings + endpoints + discovery
 - Output: `AttackSurfaceGraph` (Asset → Endpoint → Parameter → Vuln)
-- Logic: Build graph → calculate risk scores → identify entry points
 
-**Stage 9 — Attack Path Analysis** (`scanner/attack_surface/attack_paths.py`) [Deep only]
+**Stage 11 — Attack Path Analysis** (`scanner/attack_surface/attack_paths.py`) [Deep only]
 - Input: AttackSurfaceGraph + findings
-- Output: Attack path scenarios (multi-step chains)
-- Logic: 6 chain templates × pattern matching → linked steps
+- Output: Attack path scenarios (6 chain templates, multi-step)
 
-**Stage 10 — Reporting** (`reporting/engine/`)
+**Stage 12 — Asset Intelligence** (`scanner/asset_intelligence/`)
+- Input: all findings + CVE records + discovered endpoints
+- Output: per-host `Asset` objects với `risk_score`, `technologies`, `vulnerabilities`, `cves`
+- Key files: `asset_manager.py`, `asset_enricher.py`, `fingerprint_service.py`, `host_grouper.py`, `risk_aggregator.py`, `models.py`
+- Stored in Redis key `scan:{id}:asset_intelligence`
+
+**Stage 13 — Reporting** (`reporting/engine/`)
 - Input: all scan results
-- Output: HTML report (self-contained, dark theme, offline-capable)
+- Output: HTML report (self-contained, dark theme, offline-capable) + JSON/CSV/PDF
 - Key files: `html_report.py`, `report_builder.py`, `tasks.py`
-- Formats: HTML, JSON, CSV, PDF
 
 ---
 
@@ -139,12 +178,10 @@ Stages 8–9 chỉ chạy trong chế độ Deep Intelligence.
 |-------------------------|--------------------------------------------|
 | Thời gian               | ~2–5 phút                                  |
 | Payload injection       | Không                                      |
-| Stages                  | asset_discovery → crawling → template_scan → detection |
+| Stages                  | Discovery → Crawl → Template → Detection   |
 | Crawler                 | max 20 pages, depth 2                      |
 | Detection               | error_pattern only                         |
-| Output                  | Security checks summary (an toàn / cần kiểm tra / có rủi ro) |
-
-Config: `scanner/scan_manager/scan_profiles.py` → `"quick"`
+| Output                  | Security checks summary                    |
 
 ### 3.2 Quét Tiêu Chuẩn (Standard Scan)
 
@@ -152,14 +189,12 @@ Config: `scanner/scan_manager/scan_profiles.py` → `"quick"`
 |-------------------------|--------------------------------------------|
 | Thời gian               | ~15–40 phút                                |
 | Payload injection       | Safe mode, 10 payloads/param               |
-| Stages                  | 7 stages (đến CVE Intelligence)            |
+| Stages                  | 9 stages (đến CVE Intelligence + Asset Intelligence) |
 | Crawler                 | max 200 pages, depth 5                     |
 | Detection               | error_pattern + reflection + timing + diff |
 | AI Analysis             | OWASP/CWE/CVSS + explanation + fix         |
 | CVE Intelligence        | NVD + CISA KEV                             |
 | Output                  | Intelligence HTML report                    |
-
-Config: `scan_profiles.py` → `"standard"`
 
 ### 3.3 Phân Tích Sâu (Deep Intelligence)
 
@@ -167,394 +202,465 @@ Config: `scan_profiles.py` → `"standard"`
 |-------------------------|--------------------------------------------|
 | Thời gian               | ~1–3 giờ                                   |
 | Payload injection       | Aggressive mode, 25 payloads/param + fuzzing |
-| Stages                  | 9 stages (+ Attack Surface + Attack Path)  |
-| Crawler                 | max 500 pages, depth 8, JS parsing, hidden param discovery |
+| Stages                  | 11 stages (+ Attack Surface + Attack Path) |
+| Crawler                 | max 500 pages, depth 8, JS + hidden params |
 | Detection               | All methods + boolean_blind                |
-| Attack Surface          | Graph: Asset → Endpoint → Parameter → Vuln |
-| Attack Path             | 6 chain templates, multi-step scenarios    |
-| Output                  | Intelligence report + Attack Surface Map + Attack Scenarios |
+| Output                  | Full report + Attack Surface + Attack Paths |
 
-Config: `scan_profiles.py` → `"deep"`
+Config: `scanner/scan_manager/scan_profiles.py`
 
 ---
 
-## 4. Detection Engine — Chi Tiết Kỹ Thuật
+## 4. Detection Engine
 
 ### 4.1 Phương Pháp Detection
 
 **SQL Injection** — `match_sql_errors()` + baseline comparison
-- Pattern matching trên database error messages (MySQL, PostgreSQL, MSSQL, Oracle, SQLite)
-- Baseline diff: chỉ alert khi error KHÔNG có trong baseline response
+- Pattern matching DB error messages (MySQL, PostgreSQL, MSSQL, Oracle, SQLite)
+- Baseline diff: chỉ alert khi error KHÔNG có trong baseline
 
 **XSS** — `_check_xss_reflection()` + HTML context analysis
-- Exact match, URL decode, HTML unescape
-- Partial marker detection: `<script`, `onerror=`, `alert(`, `<svg`, `<img`, `<iframe`
-- Context analysis: `html_text` → High, `html_attribute` → High, `css` → Low, `html_comment` → skip
-- Baseline comparison: skip nếu payload content đã có sẵn
+- Exact match, URL decode, HTML unescape; partial marker detection
+- Context: `html_text`/`html_attribute` → High, `css` → Low, `html_comment` → skip
 
 **Command Injection** — Tiered detection
-- Tier 1 (Confirmed): `match_cmdi_confirmed()` — OS output patterns (`uid=`, `root:`, `Windows`)
-- Tier 2 (Possible): `match_cmdi_possible()` — weaker indicators
-- Response code filter: skip 404/403/405
+- Tier 1 (Confirmed): OS output patterns (`uid=`, `root:`, `Windows`)
+- Tier 2 (Possible): weaker indicators; skip 404/403/405
 
-**SSRF** — `match_ssrf_patterns()` + payload validation
-- Chỉ accept nếu payload là internal URL (`is_ssrf_payload()`)
-- Baseline comparison
+**SSRF** — `match_ssrf_patterns()` + internal URL validation
 
-**LFI/Path Traversal** — `match_lfi_patterns()`
-- Pattern: `/etc/passwd`, `[boot loader]`, `.ini` content
-- Baseline comparison
+**LFI/Path Traversal** — `match_lfi_patterns()` (`/etc/passwd`, `[boot loader]`)
 
-**Info Disclosure** — `match_info_disclosure()`
-- Negative patterns: CSRF token, `_token`, `authenticity_token` → excluded
-- Response code 500+ → auto-trigger
+**Info Disclosure** — `match_info_disclosure()` — excludes CSRF tokens
 
-### 4.2 False Positive Mitigation
+### 4.2 False Positive Mitigation (9 lớp)
 
-1. **Baseline comparison** — differential analysis với benign request
-2. **HTML context analysis** — XSS trong `html_comment` = not exploitable → skip
-3. **Tiered CmdI patterns** — confirmed vs possible tách riêng
-4. **SSRF payload validation** — chỉ internal URLs
-5. **Info Disclosure negative patterns** — CSRF token exclusion
-6. **Response code filtering** — skip 404/403/405 cho injection types
-7. **Post-detection filter** — `_filter_low_quality_findings()` trong pipeline
-8. **Template filter** — `_template_filter.py` filter template findings
-9. **Cross-validation** — boost confidence khi multiple methods agree
+1. Baseline comparison (differential)
+2. HTML context analysis (XSS)
+3. Tiered CmdI patterns
+4. SSRF payload validation (internal URLs only)
+5. Info Disclosure negative patterns
+6. Response code filtering (skip 404/403/405)
+7. `_filter_low_quality_findings()` post-detection
+8. Template filter (`_template_filter.py`)
+9. Verification Layer (Stage 6) — multi-step HTTP probes
 
 ### 4.3 Confidence Scoring
 
-| Range       | Label      | Ý nghĩa                          |
-|-------------|------------|-----------------------------------|
-| > 0.7       | Confirmed  | Evidence rõ ràng, verified         |
-| 0.4 – 0.7  | Likely     | Dấu hiệu mạnh, nên verify        |
-| < 0.4       | Potential  | Cần xác minh thủ công              |
-
-False positive likelihood: Confirmed → 10%, Likely → 30%, Potential → 60%.
+| Range      | Label     | Ý nghĩa                          |
+|------------|-----------|-----------------------------------|
+| confirmed  | Confirmed | Verified bởi Verification Layer   |
+| high       | High      | Evidence rõ ràng từ Detection      |
+| medium     | Medium    | Dấu hiệu trung bình                |
+| low        | Low       | Cần xác minh thủ công              |
 
 ---
 
-## 5. AI Analyzer — Rule-Based Intelligence
+## 5. Knowledge-Base Enrichment
 
-### 5.1 OWASP/CWE/CVSS Mapping Table
+### 5.1 Mục Đích
 
-| Vuln Type          | OWASP           | CWE     | CVSS Score |
-|--------------------|-----------------|---------|------------|
-| sqli               | A03:2021        | CWE-89  | 9.8        |
-| time_based_sqli    | A03:2021        | CWE-89  | 7.5        |
-| xss                | A03:2021        | CWE-79  | 6.1        |
-| xss_stored         | A03:2021        | CWE-79  | 5.4        |
-| cmdi               | A03:2021        | CWE-78  | 9.8        |
-| time_based_cmdi    | A03:2021        | CWE-78  | 7.5        |
-| ssrf               | A10:2021        | CWE-918 | 8.6        |
-| lfi                | A01:2021        | CWE-22  | 7.5        |
-| path_traversal     | A01:2021        | CWE-22  | 7.5        |
-| info_disclosure    | A05:2021        | CWE-200 | 5.3        |
-| open_redirect      | A01:2021        | CWE-601 | 6.1        |
-| cors_misconfig     | A05:2021        | CWE-942 | 6.5        |
-| xxe                | A05:2021        | CWE-611 | 7.5        |
-| crlf_injection     | A03:2021        | CWE-93  | 4.7        |
+Đảm bảo **mọi finding** đều có đủ 4 trường hiển thị trong UI, dù AI Analyzer bị tắt (Quick/Standard mode):
 
-Source: `ai/analyzer/vuln_mapping.py`
+| Trường        | Nguồn ưu tiên         | Fallback          |
+|---------------|-----------------------|-------------------|
+| `explanation` | AI Analyzer           | Knowledge-base template |
+| `impact`      | AI Analyzer           | Knowledge-base template |
+| `remediation` | AI Analyzer           | Knowledge-base template |
+| `payload`     | Detection Engine      | `""` (hiển thị "Not available — detected via...") |
+| `evidence`    | Detection Engine      | `""` |
 
-### 5.2 Explanation Engine
+### 5.2 Templates Có Sẵn
 
-- Explanation templates: tiếng Việt, 3–4 câu, contextual (endpoint + parameter)
-- Impact templates: 2 câu business/technical impact
-- Fix templates: 3 recommendations cụ thể per vuln type
-- Source: `ai/analyzer/explanation_engine.py`
+`scanner/knowledge_base/vuln_templates.py`:
 
-### 5.3 Upgrade Path
+```
+sqli, time_based_sqli, xss, xss_reflected, xss_stored,
+cmdi, time_based_cmdi, ssrf, lfi, path_traversal,
+info_disclosure, open_redirect, _GENERIC_FALLBACK
+```
+
+---
+
+## 6. Asset Intelligence Layer
+
+### 6.1 Data Model
+
+```python
+Asset:
+  host: str
+  endpoints: list[str]
+  technologies: list[Technology]   # name, version, confidence, cpe
+  vulnerabilities: list[Vulnerability]  # type, severity, confidence, payload, evidence,
+                                        # explanation, impact, remediation, cwe_id, cvss_score,
+                                        # owasp_category, verification_steps
+  cves: list[CVE]                  # id, cvss, severity, technology, summary, is_actively_exploited
+  risk_score: float                # 0–100
+```
+
+### 6.2 Risk Score
+
+| Score  | Level    | Màu    |
+|--------|----------|--------|
+| ≥ 80   | Critical | Đỏ     |
+| ≥ 60   | High     | Cam    |
+| ≥ 40   | Medium   | Vàng   |
+| < 40   | Low      | Xanh lá |
+
+### 6.3 API Endpoint
+
+```
+GET /api/v1/scans/{scan_id}/asset-intelligence
+→ { scan_id, target, assets[], total_assets, critical_assets, high_risk_assets, total_cves }
+```
+
+Redis key: `scan:{id}:asset_intelligence` (TTL 7 ngày)
+
+---
+
+## 7. AI Analyzer — Rule-Based Intelligence
+
+### 7.1 OWASP/CWE/CVSS Mapping
+
+| Vuln Type          | OWASP       | CWE     | CVSS |
+|--------------------|-------------|---------|------|
+| sqli               | A03:2021    | CWE-89  | 9.8  |
+| time_based_sqli    | A03:2021    | CWE-89  | 7.5  |
+| xss                | A03:2021    | CWE-79  | 6.1  |
+| xss_stored         | A03:2021    | CWE-79  | 5.4  |
+| cmdi               | A03:2021    | CWE-78  | 9.8  |
+| time_based_cmdi    | A03:2021    | CWE-78  | 7.5  |
+| ssrf               | A10:2021    | CWE-918 | 8.6  |
+| lfi                | A01:2021    | CWE-22  | 7.5  |
+| path_traversal     | A01:2021    | CWE-22  | 7.5  |
+| info_disclosure    | A05:2021    | CWE-200 | 5.3  |
+| open_redirect      | A01:2021    | CWE-601 | 6.1  |
+| cors_misconfig     | A05:2021    | CWE-942 | 6.5  |
+| xxe                | A05:2021    | CWE-611 | 7.5  |
+| crlf_injection     | A03:2021    | CWE-93  | 4.7  |
+
+### 7.2 Upgrade Path
 
 - **Hiện tại**: Rule-based (zero cost, deterministic, < 1ms per finding)
-- **Tương lai (planned)**: Ollama + local LLM cho contextual explanation
-- LLM chỉ làm: contextual explanation + false positive assessment
-- LLM KHÔNG làm: OWASP/CWE/CVSS mapping (giữ rule-based cho consistency)
+- **Tương lai**: Ollama + local LLM cho contextual explanation
+- LLM KHÔNG làm OWASP/CWE/CVSS mapping (giữ rule-based cho consistency)
 
 ---
 
-## 6. CVE Intelligence
+## 8. CVE Intelligence
 
-### 6.1 Data Sources
+### 8.1 Data Sources
 
-| Source   | API                                         | Mô tả                          |
-|----------|---------------------------------------------|---------------------------------|
-| NVD      | `services.nvd.nist.gov/rest/json/cves/2.0` | National Vulnerability Database |
-| CISA KEV | `www.cisa.gov/sites/.../known_exploited...`  | Known Exploited Vulnerabilities |
+| Source   | URL                                              | Mô tả                          |
+|----------|--------------------------------------------------|--------------------------------|
+| NVD      | `services.nvd.nist.gov/rest/json/cves/2.0`       | National Vulnerability Database |
+| CISA KEV | `www.cisa.gov/…/known_exploited_vulnerabilities` | Known Exploited Vulnerabilities |
 
-### 6.2 Pipeline
+### 8.2 Rate Limiting
 
-```
-tech_fingerprint.py → tech_parser.py → nvd_client.py → kev_client.py
-                                            ↓
-                                     Enrich findings
-                                     (related_cve_ids,
-                                      is_actively_exploited)
-```
+- Không có API key: 5 req/30s
+- Có `NVD_API_KEY`: 50 req/30s
+- Internal: `asyncio.Semaphore(2)`, 0.7s between requests
+- Cache Redis TTL 24h per technology lookup
 
-- Rate limiting: `asyncio.Semaphore(2)`, 0.7s between NVD requests
-- Without API key: 5 req/30s; with key: 50 req/30s
-- Caching: Redis (TTL 24h per technology lookup)
-- Graceful degradation: NVD down → skip, pipeline continues
+### 8.3 KEV Badge
+
+Findings có `is_actively_exploited: true` hiển thị badge **KEV** màu đỏ trong:
+- Asset Intelligence drawer (CVE table)
+- HTML report (CVE section)
 
 ---
 
-## 7. Attack Surface Graph (Deep Mode)
+## 9. Bảo Mật & Authentication
 
-### 7.1 Data Model
+### 9.1 JWT
 
+| Thuộc tính     | Giá trị                          |
+|----------------|----------------------------------|
+| Algorithm      | HS256                            |
+| Expiry         | 8 giờ                            |
+| Secret         | `SECRET_KEY` env var (bắt buộc)  |
+| Payload        | `{ sub, role, exp, iat }`        |
+| Storage        | `localStorage` (frontend)        |
+
+Nếu `SECRET_KEY` không set → sinh random mỗi restart (tokens mất hiệu lực khi restart).
+
+### 9.2 Endpoints Authentication
+
+Tất cả endpoints **bắt buộc JWT** trừ:
+- `POST /api/v1/auth/login` (public)
+- `GET /health` (public)
+
+WebSocket `/api/v1/ws/scans/{id}?token=<jwt>` — validate via query param.
+
+### 9.3 Rate Limiting (Login)
+
+20 requests/phút/IP trên endpoint `/auth/login`. Vượt quá → HTTP 429.
+
+### 9.4 Security Headers
+
+Tất cả responses trả về:
 ```
-AssetNode (domain, IP, technologies, risk_score)
-    └── EndpointNode (url, method, parameters, finding_ids, risk_score)
-            └── ParameterNode (name, type, injectable, finding_ids)
-                    └── VulnNode (vuln_type, severity, cvss, cwe, is_entry_point)
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-XSS-Protection: 1; mode=block
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: geolocation=(), microphone=(), camera=()
+Strict-Transport-Security: max-age=31536000; includeSubDomains  [production only]
 ```
 
-### 7.2 Risk Propagation
+### 9.5 User Management
 
-- Vuln risk = CVSS score
-- Endpoint risk = sum(vuln CVSS scores)
-- Asset risk = sum(endpoint risk scores)
+| Endpoint                              | Method | Auth         | Mô tả                    |
+|---------------------------------------|--------|--------------|--------------------------|
+| `/api/v1/auth/login`                  | POST   | Public       | Đăng nhập                |
+| `/api/v1/auth/me`                     | GET    | Any user     | Thông tin user hiện tại  |
+| `/api/v1/auth/change-password`        | POST   | Any user     | Đổi mật khẩu             |
+| `/api/v1/auth/users`                  | POST   | Admin only   | Tạo user mới             |
 
-### 7.3 Entry Point Detection
+Roles: `admin`, `analyst`, `viewer`
 
-Entry point vuln types: `xss`, `xss_stored`, `xss_reflected`, `sqli`, `time_based_sqli`,
-`cmdi`, `time_based_cmdi`, `ssrf`, `open_redirect`, `lfi`, `path_traversal`.
+### 9.6 Admin User Seeding
 
-Source: `scanner/attack_surface/graph.py`
+Chỉ chạy khi **không có user nào** trong Redis (first startup):
+- Username: `HQG_ADMIN_USERNAME` env (default: `admin`)
+- Password: `HQG_ADMIN_PASSWORD` env; nếu không set → sinh random và log 1 lần
 
 ---
 
-## 8. Attack Path Analysis (Deep Mode)
+## 10. HTML Report
 
-### 8.1 Chain Templates (6)
+### 10.1 Design
 
-| # | Template                          | Required Vulns | Steps |
-|---|-----------------------------------|----------------|-------|
-| 1 | XSS → Session Hijacking           | xss            | 3     |
-| 2 | SQLi → Database Extraction        | sqli           | 4     |
-| 3 | CmdI → Server Takeover            | cmdi           | 4     |
-| 4 | SSRF → Cloud Resource Access      | ssrf           | 3     |
-| 5 | LFI → Credential Theft            | lfi            | 3     |
-| 6 | XSS + SQLi → Escalation Chain     | xss, sqli      | 3     |
-
-### 8.2 Matching Logic
-
-- Required vuln types phải có trong findings (với variation matching)
-- Steps linked to actual finding IDs và endpoints
-- Priority: max CVSS ≥ 9.0 → P0, ≥ 7.0 → P1, else → P2
-
-Source: `scanner/attack_surface/attack_paths.py`
-
----
-
-## 9. HTML Report
-
-### 9.1 Design
-
-- Dark theme, self-contained (no external CDN/fonts), offline-capable
+- Dark theme, self-contained (no external CDN), offline-capable
 - Fixed sidebar TOC + scrollable main content
-- Pure inline CSS + vanilla JS (no framework dependencies)
-- File size: ~20–40KB per report
+- Pure inline CSS + vanilla JS
 
-### 9.2 Sections
+### 10.2 Sections
 
 1. **Hero** — target, scan mode, duration, endpoint/tech counts
-2. **Score Grid** — 5 cards: overall score + Critical/High/Medium/Low counts
+2. **Score Grid** — Overall score + Critical/High/Medium/Low counts
 3. **Findings** — grouped by (vuln_type, parameter), expandable, confidence badges
-4. **CVE Intelligence** — table: CVE ID, technology, CVSS, KEV status
-5. **Attack Surface Map** — riskiest endpoints + entry points [Deep only]
-6. **Attack Path Scenarios** — multi-step chains with timeline [Deep only]
-7. **Asset Summary** — domains, subdomains, technologies
-8. **Remediation Roadmap** — priority table (P0/P1/P2/P3)
+4. **CVE Intelligence** — CVE ID, technology, CVSS, KEV badge
+5. **Asset Intelligence** — per-host risk score, tech pills, vuln groups, CVE table [Standard/Deep]
+6. **Attack Surface Map** — riskiest endpoints + entry points [Deep only]
+7. **Attack Path Scenarios** — multi-step chains [Deep only]
+8. **Asset Summary** — domains, subdomains, technologies
+9. **Remediation Roadmap** — priority table P0/P1/P2/P3
 
-### 9.3 XSS Safety
+### 10.3 XSS Safety
 
 Tất cả user-supplied data qua `_safe()` → `html.escape(str(text), quote=True)`.
-
-Source: `reporting/engine/html_report.py`
-
----
-
-## 10. Tiêu Chuẩn Áp Dụng
-
-- **OWASP Top 10 2021** — vulnerability classification
-- **CWE** (Common Weakness Enumeration) — root cause mapping
-- **CVE** (Common Vulnerabilities and Exposures) — known vulnerability reference
-- **CVSS v3.1** (Common Vulnerability Scoring System) — severity scoring
-- **CISA KEV** — actively exploited vulnerability tracking
-- **NVD 2.0 API** — vulnerability database queries
 
 ---
 
 ## 11. API Reference
 
-### Authentication
+### Authentication (không cần token)
 
-| Method | Path              | Summary                    | Auth |
-|--------|-------------------|----------------------------|------|
-| POST   | `/api/v1/auth/login` | Login, returns JWT token | No   |
-| GET    | `/api/v1/auth/me`    | Current user info        | Yes  |
+| Method | Path                      | Mô tả                  |
+|--------|---------------------------|------------------------|
+| POST   | `/api/v1/auth/login`      | Đăng nhập → JWT token  |
+| GET    | `/health`                 | Health check           |
+
+### Authentication (cần token)
+
+| Method | Path                                | Mô tả                    |
+|--------|-------------------------------------|--------------------------|
+| GET    | `/api/v1/auth/me`                   | User info                |
+| POST   | `/api/v1/auth/change-password`      | Đổi mật khẩu             |
+| POST   | `/api/v1/auth/users`                | Tạo user (admin only)    |
 
 ### Scans
 
-| Method | Path                     | Summary                          |
-|--------|--------------------------|----------------------------------|
-| POST   | `/api/v1/scans`          | Start scan `{target, mode}`      |
-| GET    | `/api/v1/scans`          | List all scans                   |
-| GET    | `/api/v1/scans/{id}`     | Scan status + progress           |
-| DELETE | `/api/v1/scans/{id}`     | Cancel scan                      |
-| WS     | `/api/v1/ws/scans/{id}`  | Real-time scan progress          |
+| Method | Path                                  | Mô tả                           |
+|--------|---------------------------------------|----------------------------------|
+| POST   | `/api/v1/scans`                       | Bắt đầu scan `{target, mode}`   |
+| GET    | `/api/v1/scans`                       | Danh sách scans                  |
+| GET    | `/api/v1/scans/{id}`                  | Trạng thái + tiến độ             |
+| DELETE | `/api/v1/scans/{id}`                  | Huỷ scan                         |
+| GET    | `/api/v1/scans/{id}/asset-intelligence` | Asset Intelligence per-host    |
+| WS     | `/api/v1/ws/scans/{id}?token=<jwt>`   | Real-time progress               |
 
 Modes: `quick`, `standard`, `deep`, `full`
 
-### Domains
+### Domains / Assets
 
-| Method | Path                           | Summary                        |
-|--------|--------------------------------|--------------------------------|
-| GET    | `/api/v1/assets`               | List all domains               |
-| POST   | `/api/v1/assets`               | Add domain `{url}`             |
-| DELETE | `/api/v1/assets/{id}`          | Delete domain                  |
-| GET    | `/api/v1/assets/{scan_id}/discovery` | Discovery results cho scan |
-
-Domains tự động register khi quét target mới.
+| Method | Path                                  | Mô tả                        |
+|--------|---------------------------------------|------------------------------|
+| GET    | `/api/v1/assets`                      | Danh sách domains            |
+| POST   | `/api/v1/assets`                      | Thêm domain `{url}`          |
+| DELETE | `/api/v1/assets/{id}`                 | Xoá domain                   |
+| GET    | `/api/v1/assets/{scan_id}/discovery`  | Discovery results của scan   |
+| GET    | `/api/v1/assets/{domain_id}/report`   | Download report theo domain  |
 
 ### Vulnerabilities
 
-| Method | Path                           | Summary                        |
-|--------|--------------------------------|--------------------------------|
-| GET    | `/api/v1/vulnerabilities`      | List (filter: scan_id, severity, endpoint) |
-| GET    | `/api/v1/vulnerabilities/{id}` | Detail + remediation           |
-| PATCH  | `/api/v1/vulnerabilities/{id}` | Update status/FP/note          |
+| Method | Path                             | Mô tả                                          |
+|--------|----------------------------------|------------------------------------------------|
+| GET    | `/api/v1/vulnerabilities`        | List (filter: scan_id, severity, domain, endpoint) |
+| GET    | `/api/v1/vulnerabilities/{id}`   | Chi tiết + remediation                         |
+| PATCH  | `/api/v1/vulnerabilities/{id}`   | Cập nhật status / false-positive / note        |
+
+### Findings
+
+| Method | Path                                     | Mô tả                        |
+|--------|------------------------------------------|------------------------------|
+| PUT    | `/api/v1/findings/{id}/false-positive`   | Toggle false-positive state  |
 
 ### Reports
 
-| Method | Path                                          | Summary              |
-|--------|-----------------------------------------------|-----------------------|
-| GET    | `/api/v1/reports/{scan_id}`                   | Report metadata       |
-| GET    | `/api/v1/reports/{scan_id}/download?format=X` | Download (json/csv/html/pdf) |
+| Method | Path                                            | Mô tả                              |
+|--------|-------------------------------------------------|------------------------------------|
+| GET    | `/api/v1/reports/{scan_id}`                     | Metadata report                    |
+| GET    | `/api/v1/reports/{scan_id}/download?format=X`   | Download (json / csv / html / pdf) |
 
 ### Dashboard
 
-| Method | Path                          | Summary                   |
-|--------|-------------------------------|---------------------------|
-| GET    | `/api/v1/dashboard/stats`     | Overview statistics       |
-| GET    | `/api/v1/dashboard/posture`   | Security posture trend    |
-| GET    | `/api/v1/dashboard/top-risks` | Top 5 riskiest assets     |
+| Method | Path                            | Mô tả                      |
+|--------|---------------------------------|----------------------------|
+| GET    | `/api/v1/dashboard/stats`       | Overview (cache 30s)       |
+| GET    | `/api/v1/dashboard/posture`     | Security posture trend     |
+| GET    | `/api/v1/dashboard/top-risks`   | Top 5 riskiest assets      |
 
 ### Settings
 
-| Method | Path                 | Summary                    |
-|--------|----------------------|----------------------------|
-| GET    | `/api/v1/settings`   | Get platform settings      |
-| PUT    | `/api/v1/settings`   | Update settings (incl NVD key) |
-
-### System
-
-| Method | Path      | Summary      |
-|--------|-----------|--------------|
-| GET    | `/health` | Health check |
+| Method | Path                               | Mô tả                              |
+|--------|------------------------------------|------------------------------------|
+| GET    | `/api/v1/settings`                 | Platform settings                  |
+| PUT    | `/api/v1/settings`                 | Cập nhật settings (incl NVD key)   |
+| POST   | `/api/v1/settings/verify-nvd-key`  | Kiểm tra NVD API key               |
 
 ---
 
-## 12. Cấu Trúc Thư Mục
+## 12. Environment Variables
+
+| Biến                    | Bắt buộc | Mặc định                        | Mô tả                              |
+|-------------------------|----------|---------------------------------|------------------------------------|
+| `SECRET_KEY`            | **Có**   | *(ephemeral random)*            | JWT signing key                    |
+| `HQG_ADMIN_USERNAME`    | Không    | `admin`                         | Username admin lần đầu             |
+| `HQG_ADMIN_PASSWORD`    | **Có**   | *(random, logged once)*         | Password admin lần đầu             |
+| `ALLOWED_ORIGINS`       | **Có**   | `http://localhost:3000`         | CORS — URL frontend truy cập       |
+| `REDIS_URL`             | Không    | `redis://redis:6379/0`          | Broker URL                         |
+| `REDIS_RESULT_BACKEND`  | Không    | `redis://redis:6379/1`          | Celery result backend              |
+| `APP_DEBUG`             | Không    | `false`                         | Debug mode (ẩn /docs nếu false)    |
+| `NVD_API_KEY`           | Không    | `""`                            | NVD API key (tăng rate limit)      |
+| `ELASTICSEARCH_URL`     | Không    | `""`                            | Elasticsearch (tắt nếu để trống)   |
+| `POSTGRES_DSN`          | Không    | `""`                            | PostgreSQL (tắt nếu để trống)      |
+
+---
+
+## 13. Frontend
+
+### 13.1 Pages
+
+| Route               | File                      | Mô tả                         |
+|---------------------|---------------------------|-------------------------------|
+| `/login`            | `Login.tsx`               | Đăng nhập                     |
+| `/`                 | `Index.tsx`               | Dashboard (stats, posture, risks) |
+| `/assets`           | `AssetManagement.tsx`     | Quản lý tên miền               |
+| `/scans`            | `SecurityScans.tsx`       | Quét bảo mật + live WS        |
+| `/vulnerabilities`  | `Vulnerabilities.tsx`     | Danh sách lỗ hổng              |
+| `/asset-intelligence` | `AssetIntelligence.tsx` | Per-host intelligence view     |
+| `/reports`          | `Reports.tsx`             | Tải báo cáo                    |
+| `/settings`         | `Settings.tsx`            | Cài đặt platform               |
+
+### 13.2 Authentication Flow (Frontend)
+
+1. `isAuthenticated()` — decode JWT, kiểm tra `exp`, tự clear nếu hết hạn
+2. `ProtectedRoute` — redirect về `/login` nếu chưa auth
+3. `request()` helper — tự đính `Authorization: Bearer` vào mọi request
+4. HTTP 401 → clear storage + redirect `/login`
+5. HTTP 429 → hiện thông báo "Quá nhiều yêu cầu"
+6. WebSocket truyền token qua query param `?token=<jwt>`
+7. WS close code `4401` → tự logout
+
+### 13.3 Key Components
+
+| Component                    | Mô tả                                            |
+|------------------------------|--------------------------------------------------|
+| `AppSidebar.tsx`             | Navigation sidebar, active route highlight        |
+| `asset-intelligence/AssetDetailDrawer.tsx` | Slide-in panel với 6 sections vulnerability detail |
+| `asset-intelligence/ConfidenceBadge.tsx`   | Badge confirmed/high/medium/low           |
+| `asset-intelligence/RiskBar.tsx`           | Progress bar risk score 0–100             |
+| `asset-intelligence/AssetIntelligencePanel.tsx` | Filterable host list + global summary  |
+| `scans/`                     | Scan creation + live progress via WebSocket       |
+| `dashboard/`                 | Stats cards, posture chart, top risks             |
+
+---
+
+## 14. Cấu Trúc Thư Mục
 
 ```
-hqg-backend/
-├── ai/analyzer/
-│   ├── analyzer.py              # Orchestrator: analyze_finding()
-│   ├── vuln_mapping.py          # OWASP/CWE/CVSS lookup table
-│   ├── explanation_engine.py    # Vietnamese explanation templates
-│   ├── confidence_scorer.py     # 0.0-1.0 confidence calculation
-│   └── models.py                # AnalyzedVulnerability dataclass
-├── backend/
-│   ├── main.py                  # FastAPI app creation
-│   ├── celery_app.py            # Celery configuration
-│   ├── config/config.py         # Pydantic Settings (env-based)
-│   ├── core/
-│   │   ├── auth.py              # JWT authentication
-│   │   ├── redis.py             # Async Redis client
-│   │   ├── search.py            # Elasticsearch client
-│   │   └── user_store.py        # Admin user seeding
-│   └── api/routes/
-│       ├── auth.py              # POST /login, GET /me
-│       ├── scans.py             # CRUD /scans
-│       ├── dashboard.py         # GET /dashboard/*
-│       ├── assets.py            # CRUD /assets (domains)
-│       ├── vulnerabilities.py   # GET/PATCH /vulnerabilities
-│       ├── reports.py           # GET /reports/download
-│       ├── settings.py          # GET/PUT /settings
-│       └── ws.py                # WebSocket /ws/scans/{id}
-├── scanner/
-│   ├── asset_discovery/
-│   │   ├── tasks.py             # _discover_assets_async()
-│   │   ├── subdomain_enum.py    # crt.sh enumeration
-│   │   ├── dns_resolver.py      # A/AAAA/CNAME resolution
-│   │   ├── service_detector.py  # HTTP/HTTPS probing
-│   │   └── tech_fingerprint.py  # Server/framework detection
-│   ├── crawler/
-│   │   ├── crawler.py           # crawl_target_async()
-│   │   ├── html_parser.py       # Link/form extraction
-│   │   ├── js_parser.py         # JS endpoint/param extraction
-│   │   └── form_parser.py       # Form field parsing
-│   ├── template_engine/
-│   │   ├── executor.py          # Template matching engine
-│   │   ├── loader.py            # YAML template loader
-│   │   └── matchers.py          # Regex/status/header matchers
-│   ├── payload_engine/
-│   │   ├── tasks.py             # _inject_payloads_async()
-│   │   ├── injector.py          # Async injection executor
-│   │   ├── payload_loader.py    # Payload file loader
-│   │   ├── payload_mutator.py   # Payload mutation (deep mode)
-│   │   └── request_builder.py   # HTTP request construction
-│   ├── detection_engine/
-│   │   ├── tasks.py             # _detect_async()
-│   │   ├── response_analyzer.py # analyze_response() — core detection
-│   │   ├── error_patterns.py    # SQL/CmdI/LFI error patterns
-│   │   ├── diff_analyzer.py     # Response diff analysis
-│   │   ├── time_analyzer.py     # Time-based detection
-│   │   └── models.py            # VulnerabilityFinding dataclass
-│   ├── cve_intelligence/
-│   │   ├── nvd_client.py        # NVD 2.0 API client
-│   │   ├── kev_client.py        # CISA KEV catalog client
-│   │   └── tech_parser.py       # Technology string parser
-│   ├── attack_surface/
-│   │   ├── graph.py             # AttackSurfaceGraph + builder
-│   │   └── attack_paths.py      # 6 chain templates + analyzer
-│   └── scan_manager/
-│       ├── pipeline.py          # run_pipeline() — 10-stage orchestrator
-│       ├── tasks.py             # Celery start_scan task
-│       ├── scan_modes.py        # ScanModeConfig (quick/standard/deep/full)
-│       ├── scan_profiles.py     # Per-stage configuration dicts
-│       ├── scan_service.py      # Redis CRUD for scan state
-│       ├── security_checks.py   # Quick mode security checks
-│       └── _template_filter.py  # Template finding quality filter
-├── reporting/engine/
-│   ├── html_report.py           # Self-contained HTML generator
-│   ├── report_builder.py        # ScanReport assembler
-│   ├── tasks.py                 # Celery report generation task
-│   ├── json_report.py           # JSON export
-│   ├── csv_report.py            # CSV export
-│   └── pdf_report.py            # PDF export (WeasyPrint)
-└── docker-compose.yml           # 5 services: api, worker, redis, dvwa, dvwa-db
+secure-shield-hq/
+├── docker-compose.yml           # Production: 4 services (redis, backend, worker, frontend)
+├── Dockerfile.frontend          # Multi-stage: Node 18 build → nginx:alpine serve
+├── nginx.conf                   # SPA routing + /api/* proxy + WebSocket proxy
+├── .env                         # Active config (không commit)
+├── .env.example                 # Template config (commit)
+├── DEPLOY.md                    # Hướng dẫn deploy VPS
+│
+├── hqg-backend/
+│   ├── Dockerfile               # Python 3.11-slim + WeasyPrint deps
+│   ├── pyproject.toml           # Dependencies (uv/pip install .)
+│   ├── fingerprints_data.json   # Tech fingerprint database (3.7MB)
+│   │
+│   ├── backend/
+│   │   ├── main.py              # FastAPI app + security headers + rate limiting middleware
+│   │   ├── celery_app.py        # Celery config + 10 queues
+│   │   ├── config/config.py     # Pydantic Settings (env-based)
+│   │   ├── core/
+│   │   │   ├── auth.py          # JWT (HS256, 8h, SECRET_KEY env)
+│   │   │   ├── redis.py         # Async Redis client
+│   │   │   ├── search.py        # Elasticsearch client (optional)
+│   │   │   └── user_store.py    # User CRUD + seed từ HQG_ADMIN_* env
+│   │   └── api/routes/
+│   │       ├── auth.py          # login, me, change-password, create-user
+│   │       ├── scans.py         # CRUD /scans + asset-intelligence
+│   │       ├── dashboard.py     # stats (30s cache), posture, top-risks
+│   │       ├── assets.py        # CRUD domains + discovery + domain-report
+│   │       ├── vulnerabilities.py # list/detail/patch + FP filter
+│   │       ├── findings.py      # toggle false-positive
+│   │       ├── reports.py       # metadata + download (html/json/csv/pdf)
+│   │       ├── settings.py      # get/update + verify-nvd-key
+│   │       └── ws.py            # WebSocket /ws/scans/{id}?token=<jwt>
+│   │
+│   ├── scanner/
+│   │   ├── asset_discovery/     # subdomain_enum, dns_resolver, tech_fingerprint
+│   │   ├── crawler/             # BFS crawler, html/js/form parsers
+│   │   ├── template_engine/     # YAML template executor
+│   │   ├── payload_engine/      # Async injector, payload loader/mutator
+│   │   ├── detection_engine/    # VulnerabilityFinding, response/diff/time analyzers
+│   │   ├── verification/        # Multi-step false-positive reduction
+│   │   ├── knowledge_base/      # vuln_templates.py — 12 templates + generic fallback
+│   │   ├── cve_intelligence/    # NVD client, KEV client, tech parser
+│   │   ├── attack_surface/      # graph.py, attack_paths.py (6 chain templates)
+│   │   ├── asset_intelligence/  # models, enricher, manager, risk_aggregator
+│   │   ├── tech_fingerprint/    # Wappalyzer-compatible fingerprinting
+│   │   └── scan_manager/        # pipeline.py (13 stages), tasks.py, scan_service.py
+│   │
+│   ├── ai/analyzer/             # Rule-based OWASP/CWE/CVSS + explanation engine
+│   └── reporting/engine/        # html_report.py, json/csv/pdf exporters
+│
+└── src/                         # React frontend
+    ├── pages/                   # 9 pages (Login + 8 protected)
+    ├── components/
+    │   ├── asset-intelligence/  # AssetDetailDrawer, ConfidenceBadge, RiskBar, Panel
+    │   ├── dashboard/           # Stats cards, charts
+    │   ├── scans/               # Scan form, progress
+    │   └── layout/              # DashboardLayout, AppSidebar
+    ├── services/api.ts          # Fetch client: JWT auth, 401/429 handling, WS factory
+    ├── hooks/use-language.ts    # i18n (vi/en)
+    └── lib/i18n.ts              # Translation strings
 ```
 
-Frontend:
-```
-src/
-├── pages/
-│   ├── Index.tsx                # Dashboard
-│   ├── AssetManagement.tsx      # Quản lý Tên miền
-│   ├── SecurityScans.tsx        # Quét Bảo mật
-│   ├── Vulnerabilities.tsx      # Lỗ hổng
-│   ├── Reports.tsx              # Báo cáo
-│   ├── Settings.tsx             # Cài đặt
-│   └── Login.tsx                # Đăng nhập
-├── components/layout/
-│   ├── DashboardLayout.tsx      # Main layout wrapper
-│   └── AppSidebar.tsx           # Navigation sidebar
-├── services/api.ts              # API client (fetch-based)
-├── hooks/
-│   ├── use-language.ts          # i18n hook (vi/en)
-│   └── use-toast.ts             # Toast notifications
-└── lib/i18n.ts                  # Translation strings
-```
+---
+
+## 15. Tiêu Chuẩn Áp Dụng
+
+- **OWASP Top 10 2021** — vulnerability classification
+- **CWE** (Common Weakness Enumeration) — root cause mapping
+- **CVE** (Common Vulnerabilities and Exposures) — known vulnerability reference
+- **CVSS v3.1** — severity scoring
+- **CISA KEV** — actively exploited vulnerability tracking
+- **NVD 2.0 API** — vulnerability database queries

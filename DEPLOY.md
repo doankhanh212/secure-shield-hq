@@ -44,18 +44,27 @@ cp .env.example .env
 nano .env
 ```
 
-**Required change — set your VPS public IP or domain in `ALLOWED_ORIGINS`:**
+**Bắt buộc phải đổi 3 giá trị này trước khi deploy:**
 
 ```env
-# Replace with your actual IP or domain:
-ALLOWED_ORIGINS=http://203.0.113.10:3000,http://203.0.113.10:8000
+# 1. Sinh SECRET_KEY ngẫu nhiên:
+#    python -c "import secrets; print(secrets.token_hex(32))"
+SECRET_KEY=<paste output here>
+
+# 2. Đặt mật khẩu admin mạnh (tối thiểu 8 ký tự):
+HQG_ADMIN_PASSWORD=<strong-password>
+
+# 3. Đặt IP hoặc domain VPS của bạn:
+ALLOWED_ORIGINS=http://203.0.113.10:3000
 ```
 
-Optional — add your NVD API key for faster CVE lookups:
+Optional — thêm NVD API key để tăng tốc tra cứu CVE:
 
 ```env
 NVD_API_KEY=your-nvd-key-here
 ```
+
+> **Lưu ý:** Lần đầu khởi động, hệ thống tự tạo user admin với `HQG_ADMIN_USERNAME` / `HQG_ADMIN_PASSWORD`. Sau khi login, đổi mật khẩu ngay qua **Settings → Change Password** hoặc API `/api/v1/auth/change-password`.
 
 ---
 

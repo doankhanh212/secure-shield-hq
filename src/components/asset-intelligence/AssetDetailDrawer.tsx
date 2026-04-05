@@ -3,7 +3,6 @@ import {
   X,
   ChevronDown,
   ChevronRight,
-  Terminal,
   FileCode,
   AlertTriangle,
   Cpu,
@@ -14,11 +13,9 @@ import {
   Crosshair,
   Flame,
   Wrench,
-  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConfidenceBadge } from "./ConfidenceBadge";
-import { RiskBar, getRiskLevel, RISK_CONFIG } from "./RiskBar";
 import type {
   AssetIntelligenceItem,
   AssetVulnerability,
@@ -32,6 +29,7 @@ const SEVERITY_STYLES: Record<string, string> = {
   high: "bg-orange-500/10 text-orange-400 border-orange-500/30",
   medium: "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
   low: "bg-green-500/10 text-green-400 border-green-500/30",
+  unscored: "bg-zinc-500/10 text-zinc-400 border-zinc-500/30",
 };
 
 const SEVERITY_LEFT: Record<string, string> = {
@@ -39,6 +37,7 @@ const SEVERITY_LEFT: Record<string, string> = {
   high: "border-l-orange-500",
   medium: "border-l-yellow-500",
   low: "border-l-green-500",
+  unscored: "border-l-zinc-500",
 };
 
 const VULN_NAMES: Record<string, string> = {
@@ -117,7 +116,12 @@ function VulnCard({ vuln, selected, onSelect }: VulnCardProps) {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {vuln.cvss_score !== undefined && (
+          {vuln.owasp_category && (
+            <span className="text-[10px] font-mono text-[#06b6d4]">
+              {vuln.owasp_category.split(" ")[0]}
+            </span>
+          )}
+          {vuln.cvss_score != null && vuln.cvss_score > 0 && (
             <span className="text-xs font-mono font-semibold text-muted-foreground">
               CVSS {vuln.cvss_score.toFixed(1)}
             </span>
@@ -140,11 +144,16 @@ function VulnCard({ vuln, selected, onSelect }: VulnCardProps) {
               <Crosshair className="h-3.5 w-3.5 text-[#06b6d4]" />
               <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Attack Summary</span>
             </div>
-            {(vuln.owasp_category || vuln.cwe_id || (vuln.cvss_score !== undefined && vuln.cvss_score > 0) || vuln.detection_method) && (
+            {(vuln.owasp_category || vuln.cwe_id || (vuln.cvss_score != null && vuln.cvss_score > 0) || vuln.detection_method) && (
               <div className="flex flex-wrap gap-2">
                 {vuln.owasp_category && (
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#06b6d4]/10 text-[#06b6d4] border border-[#06b6d4]/30">
                     {vuln.owasp_category}
+                  </span>
+                )}
+                {vuln.owasp_source && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-muted/40 text-muted-foreground border border-border">
+                    src: {vuln.owasp_source}
                   </span>
                 )}
                 {vuln.cwe_id && (
@@ -152,9 +161,13 @@ function VulnCard({ vuln, selected, onSelect }: VulnCardProps) {
                     {vuln.cwe_id}
                   </span>
                 )}
-                {vuln.cvss_score !== undefined && vuln.cvss_score > 0 && (
+                {vuln.cvss_score != null && vuln.cvss_score > 0 ? (
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-muted/60 text-foreground border border-border">
                     CVSS {vuln.cvss_score.toFixed(1)}
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-500/10 text-zinc-400 border border-zinc-500/20">
+                    Unscored
                   </span>
                 )}
                 {vuln.detection_method && (
@@ -307,8 +320,21 @@ interface AssetDetailDrawerProps {
 }
 
 export function AssetDetailDrawer({ asset, onClose }: AssetDetailDrawerProps) {
-  const level = getRiskLevel(asset.risk_score);
-  const cfg = RISK_CONFIG[level];
+  // Derive priority badge from real signals
+  const hasKev = asset.has_kev ?? asset.cves.some((c) => c.is_actively_exploited);
+  const maxCvss = asset.max_cvss ?? (asset.cves.length > 0 ? Math.max(...asset.cves.map((c) => c.cvss)) : null);
+  const confirmedCount = asset.confirmed_vuln_count ?? asset.vulnerabilities.filter((v) => v.confidence.toLowerCase() === "confirmed" || v.confidence.toLowerCase() === "high").length;
+
+  const priorityLabel = hasKev ? "KEV" : maxCvss !== null && maxCvss >= 9.0 ? "Critical" : maxCvss !== null && maxCvss >= 7.0 ? "High" : confirmedCount > 0 ? "Medium" : "Low";
+  const priorityBadge = hasKev
+    ? "bg-red-500/15 border-red-500/40 text-red-400"
+    : maxCvss !== null && maxCvss >= 9.0
+      ? "bg-red-500/15 border-red-500/40 text-red-400"
+      : maxCvss !== null && maxCvss >= 7.0
+        ? "bg-orange-500/15 border-orange-500/40 text-orange-400"
+        : confirmedCount > 0
+          ? "bg-yellow-500/15 border-yellow-500/40 text-yellow-400"
+          : "bg-green-500/15 border-green-500/40 text-green-400";
 
   // Group vulns by type
   const vulnGroups = asset.vulnerabilities.reduce<Record<string, AssetVulnerability[]>>(
@@ -346,16 +372,24 @@ export function AssetDetailDrawer({ asset, onClose }: AssetDetailDrawerProps) {
               <span
                 className={cn(
                   "text-[10px] font-bold px-2 py-0.5 rounded border uppercase tracking-wide",
-                  cfg.badge
+                  priorityBadge
                 )}
               >
-                {cfg.label}
+                {priorityLabel}
               </span>
               <h2 className="text-lg font-mono font-bold truncate">{asset.host}</h2>
             </div>
-            <div className="mt-2 max-w-sm">
-              <RiskBar score={asset.risk_score} showLabel={false} />
-            </div>
+            {maxCvss !== null && (
+              <div className="mt-2 flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">Max CVSS</span>
+                <span className="font-mono font-bold">{maxCvss.toFixed(1)}</span>
+                {hasKev && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30 uppercase tracking-wide">
+                    KEV
+                  </span>
+                )}
+              </div>
+            )}
             <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
               <span>{asset.vulnerabilities.length} vulnerabilities</span>
               <span>•</span>
@@ -504,11 +538,11 @@ function VulnGroup({
 
   const confirmedCount = vulns.filter((v) => v.confidence === "confirmed").length;
   const highestSev = vulns.reduce<string>((acc, v) => {
-    const order = ["critical", "high", "medium", "low"];
+    const order = ["critical", "high", "medium", "low", "unscored"];
     const accIdx = order.indexOf(acc);
-    const vIdx = order.indexOf(v.severity?.toLowerCase());
-    return vIdx < accIdx ? v.severity.toLowerCase() : acc;
-  }, "low");
+    const vIdx = order.indexOf(v.severity?.toLowerCase() ?? "unscored");
+    return vIdx >= 0 && vIdx < accIdx ? v.severity.toLowerCase() : acc;
+  }, "unscored");
 
   const sorted = vulns.slice().sort((a, b) => {
     const confOrder = ["confirmed", "high", "medium", "low"];

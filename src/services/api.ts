@@ -494,12 +494,13 @@ export interface AssetVulnerability {
   verification_steps?: string[];
   payload?: string;
   parameter?: string;
-  cvss_score?: number;
+  cvss_score?: number | null;
   cwe_id?: string;
   explanation?: string;
   impact?: string;
   remediation?: string;
   owasp_category?: string;
+  owasp_source?: string; // cve | cwe | rule | fallback
   detection_method?: string;
 }
 
@@ -518,7 +519,9 @@ export interface AssetIntelligenceItem {
   technologies: AssetTechnology[];
   vulnerabilities: AssetVulnerability[];
   cves: AssetCVE[];
-  risk_score: number;
+  has_kev?: boolean;
+  max_cvss?: number | null;
+  confirmed_vuln_count?: number;
 }
 
 export interface AssetIntelligenceResponse {

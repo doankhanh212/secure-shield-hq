@@ -35,6 +35,7 @@ const severityBadgeStyles: Record<string, string> = {
   high: "bg-orange-500/10 text-orange-400 border-orange-500/30",
   medium: "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
   low: "bg-green-500/10 text-green-400 border-green-500/30",
+  unscored: "bg-zinc-500/10 text-zinc-400 border-zinc-500/30",
 };
 
 const severityLeftBorder: Record<string, string> = {
@@ -42,6 +43,7 @@ const severityLeftBorder: Record<string, string> = {
   high: "border-l-orange-500",
   medium: "border-l-yellow-500",
   low: "border-l-green-500",
+  unscored: "border-l-zinc-500",
 };
 
 const VULN_DISPLAY_NAMES: Record<string, string> = {
@@ -140,10 +142,12 @@ function VulnCard({ vuln, expanded, onToggle, onFpToggle, fpPending }: {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {vuln.cvss_score !== undefined && (
+          {vuln.cvss_score != null && vuln.cvss_score > 0 ? (
             <span className="text-xs font-mono font-semibold text-muted-foreground">
               CVSS {vuln.cvss_score.toFixed(1)}
             </span>
+          ) : (
+            <span className="text-[10px] font-mono text-zinc-400">Unscored</span>
           )}
           {expanded ? (
             <ChevronDown className="h-4 w-4 text-muted-foreground" />

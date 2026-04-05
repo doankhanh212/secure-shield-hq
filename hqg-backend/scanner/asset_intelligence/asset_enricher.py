@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Optional
-
 from scanner.asset_intelligence.models import Asset, CVE, Vulnerability
 
 logger = logging.getLogger(__name__)
@@ -107,11 +105,17 @@ def attach_vulnerabilities(
         else:
             vsteps = []
 
+        # cvss_score: preserve None when absent (no fake scoring)
+        raw_cvss = f.get("cvss_score")
+        cvss_val = float(raw_cvss) if raw_cvss is not None and raw_cvss != "" else None
+        if cvss_val is not None and cvss_val == 0.0:
+            cvss_val = None  # treat 0.0 as unscored
+
         asset.vulnerabilities.append(
             Vulnerability(
                 type=vtype,
                 endpoint=ep,
-                severity=str(f.get("severity", "Medium")),
+                severity=str(f.get("severity", "Unscored")),
                 confidence=str(f.get("confidence", "Medium")),
                 parameter=param,
                 detection_method=str(f.get("detection_method", "")),
@@ -121,8 +125,9 @@ def attach_vulnerabilities(
                 impact=str(f.get("impact", "") or ""),
                 remediation=str(f.get("remediation", "") or f.get("fix_recommendation", "") or ""),
                 cwe_id=str(f.get("cwe_id", "") or ""),
-                cvss_score=float(f.get("cvss_score", 0.0) or 0.0),
+                cvss_score=cvss_val,
                 owasp_category=str(f.get("owasp_category", "") or ""),
+                owasp_source=str(f.get("owasp_source", "") or ""),
                 verification_steps=vsteps,
             )
         )

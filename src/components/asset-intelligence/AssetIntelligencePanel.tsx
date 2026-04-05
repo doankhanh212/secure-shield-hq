@@ -2,10 +2,38 @@ import { useState } from "react";
 import { Shield, ChevronRight, Bug, AlertTriangle, Cpu, Search, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-import { RiskBar, getRiskLevel, RISK_CONFIG } from "./RiskBar";
 import { ConfidenceBadge } from "./ConfidenceBadge";
 import { AssetDetailDrawer } from "./AssetDetailDrawer";
 import type { AssetIntelligenceItem, AssetIntelligenceResponse } from "@/services/api";
+
+// ── Priority helpers ─────────────────────────────────────────────────────────
+
+type PriorityLevel = "critical" | "high" | "medium" | "low";
+
+const PRIORITY_CONFIG: Record<PriorityLevel, { label: string; badge: string; bar: string }> = {
+  critical: { label: "Critical", badge: "bg-red-500/15 border-red-500/40 text-red-400", bar: "bg-red-500" },
+  high:     { label: "High",     badge: "bg-orange-500/15 border-orange-500/40 text-orange-400", bar: "bg-orange-500" },
+  medium:   { label: "Medium",   badge: "bg-yellow-500/15 border-yellow-500/40 text-yellow-400", bar: "bg-yellow-500" },
+  low:      { label: "Low",      badge: "bg-green-500/15 border-green-500/40 text-green-400", bar: "bg-green-500" },
+};
+
+function getAssetPriority(asset: AssetIntelligenceItem): PriorityLevel {
+  const hasKev = asset.has_kev ?? asset.cves.some((c) => c.is_actively_exploited);
+  if (hasKev) return "critical";
+  const maxCvss = asset.max_cvss ?? (asset.cves.length > 0 ? Math.max(...asset.cves.map((c) => c.cvss)) : 0);
+  if (maxCvss >= 9.0) return "critical";
+  if (maxCvss >= 7.0) return "high";
+  const confirmed = asset.confirmed_vuln_count ?? asset.vulnerabilities.filter((v) => v.confidence.toLowerCase() === "confirmed" || v.confidence.toLowerCase() === "high").length;
+  if (confirmed > 0) return "medium";
+  return "low";
+}
+
+function assetSortKey(asset: AssetIntelligenceItem): number {
+  const kev = (asset.has_kev ?? asset.cves.some((c) => c.is_actively_exploited)) ? 10000 : 0;
+  const cvss = asset.max_cvss ?? (asset.cves.length > 0 ? Math.max(...asset.cves.map((c) => c.cvss)) : 0);
+  const confirmed = asset.confirmed_vuln_count ?? 0;
+  return kev + cvss * 100 + confirmed;
+}
 
 // ── Summary strip ─────────────────────────────────────────────────────────────
 
@@ -61,8 +89,10 @@ function AssetRow({
   asset: AssetIntelligenceItem;
   onClick: () => void;
 }) {
-  const level = getRiskLevel(asset.risk_score);
-  const cfg = RISK_CONFIG[level];
+  const level = getAssetPriority(asset);
+  const cfg = PRIORITY_CONFIG[level];
+  const hasKev = asset.has_kev ?? asset.cves.some((c) => c.is_actively_exploited);
+  const maxCvss = asset.max_cvss ?? (asset.cves.length > 0 ? Math.max(...asset.cves.map((c) => c.cvss)) : null);
 
   // Count confirmed vulns for quick read
   const confirmed = asset.vulnerabilities.filter((v) => v.confidence === "confirmed").length;
@@ -72,16 +102,6 @@ function AssetRow({
   const highVulns = asset.vulnerabilities.filter(
     (v) => v.severity?.toLowerCase() === "high"
   ).length;
-
-  // Top confidence of any finding for the row-level badge
-  const topConfidence = (() => {
-    const order = ["confirmed", "high", "medium", "low"];
-    return asset.vulnerabilities.reduce<string>((best, v) => {
-      const vi = order.indexOf(v.confidence?.toLowerCase());
-      const bi = order.indexOf(best);
-      return vi !== -1 && vi < bi ? v.confidence.toLowerCase() : best;
-    }, "low");
-  })();
 
   return (
     <button
@@ -150,11 +170,18 @@ function AssetRow({
           </div>
         </div>
 
-        {/* Risk bar + chevron */}
-        <div className="flex items-center gap-3 shrink-0">
-          <div className="w-28 hidden sm:block">
-            <RiskBar score={asset.risk_score} showLabel={false} />
-          </div>
+        {/* Priority signals + chevron */}
+        <div className="flex items-center gap-2 shrink-0">
+          {hasKev && (
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30 uppercase tracking-wide">
+              KEV
+            </span>
+          )}
+          {maxCvss !== null && (
+            <span className="text-xs font-mono font-semibold text-muted-foreground hidden sm:inline">
+              CVSS {maxCvss.toFixed(1)}
+            </span>
+          )}
           <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-[#06b6d4] transition-colors" />
         </div>
       </div>
@@ -195,13 +222,13 @@ export function AssetIntelligencePanel({ data }: AssetIntelligencePanelProps) {
   const [riskFilter, setRiskFilter] = useState<RiskFilter>("all");
   const [confFilter, setConfFilter] = useState<ConfFilter>("all");
 
-  // Sort by risk_score DESC (already should be from backend, but enforce)
-  const sorted = [...data.assets].sort((a, b) => b.risk_score - a.risk_score);
+  // Sort by priority: KEV > CVSS > confirmed vulns (already from backend, but enforce)
+  const sorted = [...data.assets].sort((a, b) => assetSortKey(b) - assetSortKey(a));
 
   // Apply filters
   const filtered = sorted.filter((asset) => {
     if (search && !asset.host.toLowerCase().includes(search.toLowerCase())) return false;
-    if (riskFilter !== "all" && getRiskLevel(asset.risk_score) !== riskFilter) return false;
+    if (riskFilter !== "all" && getAssetPriority(asset) !== riskFilter) return false;
     if (confFilter !== "all") {
       const hasConf = asset.vulnerabilities.some(
         (v) => v.confidence?.toLowerCase() === confFilter

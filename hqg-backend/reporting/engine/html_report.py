@@ -40,6 +40,7 @@ _SEV_COLOR = {
     "High":     "#ff7b44",
     "Medium":   "#ffb800",
     "Low":      "#00ff9d",
+    "Unscored": "#8899aa",
     "None":     "#4a6a90",
 }
 
@@ -48,6 +49,7 @@ _SEV_BG = {
     "High":     "rgba(255,123,68,0.15)",
     "Medium":   "rgba(255,184,0,0.15)",
     "Low":      "rgba(0,255,157,0.12)",
+    "Unscored": "rgba(136,153,170,0.15)",
     "None":     "rgba(74,106,144,0.15)",
 }
 
@@ -534,7 +536,7 @@ def _render_sidebar(vulns: list[dict]) -> str:
     toc_findings: list[str] = []
 
     # Group by severity for TOC sections
-    sev_order = ["Critical", "High", "Medium", "Low"]
+    sev_order = ["Critical", "High", "Medium", "Low", "Unscored"]
     by_sev: dict[str, list[dict]] = defaultdict(list)
     for v in vulns:
         sev = str(v.get("severity", "Low"))
@@ -545,6 +547,7 @@ def _render_sidebar(vulns: list[dict]) -> str:
         "High":     "toc-high",
         "Medium":   "toc-medium",
         "Low":      "toc-low",
+        "Unscored": "toc-info",
     }
 
     for sev in sev_order:
@@ -656,11 +659,13 @@ def _render_false_positive_removed(scan_result: dict) -> str:
 
 
 def _render_single_finding(v: dict, detail_id: str, is_open: bool) -> str:
-    sev        = str(v.get("severity", "Low"))
+    sev        = str(v.get("severity", "Unscored"))
     fid        = str(v.get("finding_id", ""))[:8] or _short_id(v)
     cwe        = _safe(v.get("cwe_id", ""))
     owasp      = _safe(v.get("owasp_category", ""))
-    cvss       = float(v.get("cvss_score", 0.0))
+    owasp_src  = _safe(v.get("owasp_source", ""))
+    raw_cvss   = v.get("cvss_score")
+    cvss       = float(raw_cvss) if raw_cvss is not None else None
     vuln_name  = str(v.get("vulnerability_type", "")).replace("_", " ").title()
     explanation= _safe(v.get("explanation", ""))
     impact     = _safe(v.get("impact", ""))
@@ -698,8 +703,10 @@ def _render_single_finding(v: dict, detail_id: str, is_open: bool) -> str:
         + _sev_badge(sev) +
         f'<span class="finding-id">{_safe(fid)}</span>'
         f'<span class="finding-cwe">{cwe}</span>'
-        f'<span class="finding-cwe">{owasp}</span>'
-        f'<span class="finding-cvss">CVSS {cvss:.1f}</span>'
+        f'<span class="finding-cwe">{owasp}'
+        + (f' <span style="font-size:9px;opacity:0.6">({owasp_src})</span>' if owasp_src else '') +
+        f'</span>'
+        + (f'<span class="finding-cvss">CVSS {cvss:.1f}</span>' if cvss is not None and cvss > 0 else '<span class="finding-cvss" style="color:#8899aa">Unscored</span>') +
         f'<span class="finding-name">{_safe(vuln_name)}</span>'
         f'<span class="finding-toggle">{toggle_ic}</span>'
         '</div>'
@@ -745,8 +752,8 @@ def _render_findings_section(vulns: list[dict]) -> str:
             '</div></div>'
         )
 
-    # Sort by cvss_score desc
-    sorted_vulns = sorted(vulns, key=lambda v: float(v.get("cvss_score", 0.0)), reverse=True)
+    # Sort by cvss_score desc (None/0 → bottom)
+    sorted_vulns = sorted(vulns, key=lambda v: float(v.get("cvss_score") or 0), reverse=True)
 
     # Group by (vulnerability_type, parameter) for deduplication
     groups: dict[tuple, list[dict]] = defaultdict(list)
@@ -773,7 +780,9 @@ def _render_findings_section(vulns: list[dict]) -> str:
             fid       = str(primary.get("finding_id", ""))[:8] or _short_id(primary)
             cwe       = _safe(primary.get("cwe_id", ""))
             owasp     = _safe(primary.get("owasp_category", ""))
-            cvss      = float(primary.get("cvss_score", 0.0))
+            owasp_src = _safe(primary.get("owasp_source", ""))
+            _raw_cvss = primary.get("cvss_score")
+            cvss      = float(_raw_cvss) if _raw_cvss is not None else None
             vuln_name = str(primary.get("vulnerability_type", "")).replace("_", " ").title()
             explanation = _safe(primary.get("explanation", ""))
             impact      = _safe(primary.get("impact", ""))
@@ -805,8 +814,10 @@ def _render_findings_section(vulns: list[dict]) -> str:
                 + _sev_badge(sev) +
                 f'<span class="finding-id">{_safe(fid)}</span>'
                 f'<span class="finding-cwe">{cwe}</span>'
-                f'<span class="finding-cwe">{owasp}</span>'
-                f'<span class="finding-cvss">CVSS {cvss:.1f}</span>'
+                f'<span class="finding-cwe">{owasp}'
+                + (f' <span style="font-size:9px;opacity:0.6">({owasp_src})</span>' if owasp_src else '') +
+                f'</span>'
+                + (f'<span class="finding-cvss">CVSS {cvss:.1f}</span>' if cvss is not None and cvss > 0 else '<span class="finding-cvss" style="color:#8899aa">Unscored</span>') +
                 f'<span class="finding-name">{_safe(vuln_name)}'
                 f' <span style="color:#4a6a90;font-size:12px">({len(group_vulns)} endpoints)</span></span>'
                 f'<span class="finding-toggle">{toggle_ic}</span>'
@@ -1008,8 +1019,14 @@ def _render_asset_intelligence_section(assets: list[dict]) -> str:
     if not assets:
         return ""
 
-    # Sort by risk_score DESC (should already be sorted from pipeline, enforce anyway)
-    sorted_assets = sorted(assets, key=lambda a: float(a.get("risk_score", 0)), reverse=True)
+    # Sort by priority: KEV > max CVSS > confirmed vuln count
+    def _asset_sort_key(a: dict) -> tuple:
+        kev = 1 if a.get("has_kev") or any(c.get("is_actively_exploited") for c in (a.get("cves") or [])) else 0
+        max_cvss = float(a.get("max_cvss") or max((c.get("cvss", 0) for c in (a.get("cves") or [])), default=0))
+        confirmed = int(a.get("confirmed_vuln_count", 0))
+        return (kev, max_cvss, confirmed)
+
+    sorted_assets = sorted(assets, key=_asset_sort_key, reverse=True)
 
     VULN_DISPLAY: dict[str, str] = {
         "sqli":            "SQL Injection",
@@ -1042,29 +1059,43 @@ def _render_asset_intelligence_section(assets: list[dict]) -> str:
         '<div class="section-title">Asset Intelligence</div>',
         '<div class="callout callout-info" style="margin-bottom:20px">'
         '<span>🎯</span>'
-        '<span>Phân tích rủi ro theo từng host — sắp xếp theo điểm rủi ro giảm dần. '
+        '<span>Phân tích rủi ro theo từng host — ưu tiên: KEV → CVSS → lỗ hổng đã xác nhận. '
         'Click vào host để xem chi tiết.</span>'
         '</div>',
     ]
 
     for idx, asset in enumerate(sorted_assets):
         host       = _safe(asset.get("host", "unknown"))
-        risk_score = float(asset.get("risk_score", 0))
-        risk_label, risk_color = _risk_level(risk_score)
         vulns      = asset.get("vulnerabilities") or []
         techs      = asset.get("technologies") or []
         cves       = asset.get("cves") or []
         endpoints  = asset.get("endpoints") or []
         block_id   = f"ai-block-{idx}"
         top_conf   = _top_confidence(vulns)
+        has_kev    = asset.get("has_kev") or any(c.get("is_actively_exploited") for c in cves)
+        max_cvss   = asset.get("max_cvss")
+        if max_cvss is None and cves:
+            max_cvss = max((float(c.get("cvss", 0)) for c in cves), default=None)
+
+        # Derive priority label from real signals
+        if has_kev:
+            _plabel, _pcolor = "KEV", "#ff3e5e"
+        elif max_cvss is not None and max_cvss >= 9.0:
+            _plabel, _pcolor = "Critical", "#ff3e5e"
+        elif max_cvss is not None and max_cvss >= 7.0:
+            _plabel, _pcolor = "High", "#ff7b44"
+        elif vulns:
+            _plabel, _pcolor = "Medium", "#ffb800"
+        else:
+            _plabel, _pcolor = "Low", "#00ff9d"
 
         # ── Header ────────────────────────────────────────────────────────
         parts.append(
             f'<div class="ai-host-block">'
             f'<div class="ai-host-header" onclick="toggleDetail(\'{block_id}\')">'
-            # Risk level badge
-            f'<span class="sev-badge" style="color:{risk_color};background:{risk_color}22;'
-            f'border-color:{risk_color}55">{_safe(risk_label)}</span>'
+            # Priority badge
+            f'<span class="sev-badge" style="color:{_pcolor};background:{_pcolor}22;'
+            f'border-color:{_pcolor}55">{_safe(_plabel)}</span>'
             # Hostname
             f'<span class="ai-host-name">{host}</span>'
             # Top confidence (only when vulns exist)
@@ -1081,18 +1112,29 @@ def _render_asset_intelligence_section(assets: list[dict]) -> str:
                 f'🐛 {len(vulns)} vuln{"s" if len(vulns) != 1 else ""}</span>'
             )
         if cves:
+            kev_count = sum(1 for c in cves if c.get("is_actively_exploited"))
+            kev_txt = f" ({kev_count} KEV)" if kev_count else ""
             parts.append(
                 f'<span style="font-size:11px;color:#8aa8cc">'
-                f'🔴 {len(cves)} CVE{"s" if len(cves) != 1 else ""}</span>'
+                f'🔴 {len(cves)} CVE{"s" if len(cves) != 1 else ""}{kev_txt}</span>'
             )
         parts.append('</div>')
-        # Risk bar + score
-        bar_pct = min(100, max(0, risk_score))
+        # Max CVSS display (replaces fake risk bar)
+        if max_cvss is not None:
+            bar_pct = min(100, max(0, max_cvss * 10))
+            parts.append(
+                f'<div class="ai-risk-bar-wrap">'
+                f'<div class="ai-risk-bar" style="width:{bar_pct:.0f}%;background:{_pcolor}"></div>'
+                f'</div>'
+                f'<span class="ai-risk-score" style="color:{_pcolor}">CVSS {max_cvss:.1f}</span>'
+            )
+        if has_kev:
+            parts.append(
+                '<span style="font-size:10px;font-weight:700;color:#ff3e5e;background:rgba(255,62,94,0.15);'
+                'border:1px solid rgba(255,62,94,0.3);border-radius:4px;padding:2px 6px;margin-left:4px">'
+                'KEV</span>'
+            )
         parts.append(
-            f'<div class="ai-risk-bar-wrap">'
-            f'<div class="ai-risk-bar" style="width:{bar_pct:.0f}%;background:{risk_color}"></div>'
-            f'</div>'
-            f'<span class="ai-risk-score" style="color:{risk_color}">{risk_score:.0f}</span>'
             f'<span class="finding-toggle">▶</span>'
             f'</div>'  # /ai-host-header
         )
@@ -1380,17 +1422,17 @@ def _render_roadmap_section(vulns: list[dict]) -> str:
     seen: dict[str, dict] = {}
     for v in vulns:
         vt   = str(v.get("vulnerability_type", ""))
-        cvss = float(v.get("cvss_score", 0.0))
-        if vt not in seen or cvss > float(seen[vt].get("cvss_score", 0.0)):
+        cvss = float(v.get("cvss_score") or 0)
+        if vt not in seen or cvss > float(seen[vt].get("cvss_score") or 0):
             seen[vt] = v
 
-    rows_data = sorted(seen.values(), key=lambda v: float(v.get("cvss_score", 0.0)), reverse=True)
+    rows_data = sorted(seen.values(), key=lambda v: float(v.get("cvss_score") or 0), reverse=True)
 
     rows: list[str] = []
     for v in rows_data:
         vt     = str(v.get("vulnerability_type", ""))
-        cvss   = float(v.get("cvss_score", 0.0))
-        sev    = str(v.get("severity", ""))
+        cvss   = float(v.get("cvss_score") or 0)
+        sev    = str(v.get("severity", "Unscored"))
         fid    = str(v.get("finding_id", ""))[:8] or _short_id(v)
         name   = vt.replace("_", " ").title()
         fixes  = v.get("fix_recommendation") or []

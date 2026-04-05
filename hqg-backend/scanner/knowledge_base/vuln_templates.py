@@ -406,12 +406,12 @@ def enrich_finding(finding: dict[str, object]) -> dict[str, object]:
     elif not result.get("remediation") and result.get("fix_recommendation"):
         result["remediation"] = result["fix_recommendation"]
 
-    # owasp_category — prefer existing finding value, then template, then ``owasp`` key
-    if not result.get("owasp_category"):
-        if result.get("owasp"):
-            result["owasp_category"] = result["owasp"]
-        else:
-            result["owasp_category"] = tmpl.get("owasp", "")
+    # owasp_category — now handled by scanner.owasp_mapping.engine.
+    # Only propagate if the finding already has a value from the OWASP engine
+    # or from an upstream stage. Do NOT assign from template — templates carry
+    # owasp as a reference hint but the authoritative source is the mapping engine.
+    if not result.get("owasp_category") and result.get("owasp"):
+        result["owasp_category"] = result["owasp"]
 
     # cwe_id — the detection engine already sets this via CWE_MAP, but fill from
     # template references as a last resort (e.g. for template-engine findings)

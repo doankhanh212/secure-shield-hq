@@ -46,8 +46,9 @@ class Vulnerability:
     impact: str = ""
     remediation: str = ""
     cwe_id: str = ""
-    cvss_score: float = 0.0
+    cvss_score: Optional[float] = None
     owasp_category: str = ""
+    owasp_source: str = ""
     verification_steps: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
@@ -66,6 +67,7 @@ class Vulnerability:
             "cwe_id": self.cwe_id,
             "cvss_score": self.cvss_score,
             "owasp_category": self.owasp_category,
+            "owasp_source": self.owasp_source,
             "verification_steps": self.verification_steps,
         }
 
@@ -101,7 +103,23 @@ class Asset:
     technologies: list[Technology] = field(default_factory=list)
     vulnerabilities: list[Vulnerability] = field(default_factory=list)
     cves: list[CVE] = field(default_factory=list)
-    risk_score: float = 0.0
+
+    @property
+    def has_kev(self) -> bool:
+        """True if any CVE on this asset is in the CISA KEV catalog."""
+        return any(c.is_actively_exploited for c in self.cves)
+
+    @property
+    def max_cvss(self) -> Optional[float]:
+        """Highest CVSS score across all CVEs, or None if no CVEs."""
+        if not self.cves:
+            return None
+        return max(c.cvss for c in self.cves)
+
+    @property
+    def confirmed_vuln_count(self) -> int:
+        """Count of confirmed vulnerabilities (High confidence)."""
+        return sum(1 for v in self.vulnerabilities if v.confidence.lower() in ("high", "confirmed"))
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -110,5 +128,7 @@ class Asset:
             "technologies": [t.to_dict() for t in self.technologies],
             "vulnerabilities": [v.to_dict() for v in self.vulnerabilities],
             "cves": [c.to_dict() for c in self.cves],
-            "risk_score": round(self.risk_score, 2),
+            "has_kev": self.has_kev,
+            "max_cvss": self.max_cvss,
+            "confirmed_vuln_count": self.confirmed_vuln_count,
         }

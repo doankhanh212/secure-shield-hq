@@ -1,7 +1,12 @@
-"""Calculate a composite risk score for an asset.
+"""Asset prioritization based on real security signals.
 
-The score rolls up vulnerability severity and CVSS base scores into
-a single 0–100 float that can drive dashboards and prioritisation.
+Sorting priority:
+  1. KEV presence   — assets with actively exploited CVEs come first
+  2. Max CVSS score — highest CVE severity
+  3. Confirmed vulnerabilities — count of high-confidence findings
+
+No synthetic "risk score" is produced. The sort key is a tuple used
+directly by the caller to order assets for display/reporting.
 """
 from __future__ import annotations
 
@@ -11,72 +16,29 @@ from scanner.asset_intelligence.models import Asset
 
 logger = logging.getLogger(__name__)
 
-# Points contributed by each vulnerability severity level
-_VULN_SEVERITY_WEIGHT: dict[str, float] = {
-    "critical": 15.0,
-    "high": 10.0,
-    "medium": 5.0,
-    "low": 2.0,
-}
 
-# Multiplier applied to severity score based on detection confidence
-_CONFIDENCE_WEIGHT: dict[str, float] = {
-    "confirmed": 1.0,
-    "high": 0.9,
-    "medium": 0.6,
-    "low": 0.3,
-}
+def asset_sort_key(asset: Asset) -> tuple[int, float, int]:
+    """Return a sort key for prioritizing assets.
 
-# Maximum score that the vulnerability component can contribute
-_MAX_VULN_COMPONENT = 50.0
+    Higher values = higher priority. Designed for descending sort:
+        sorted(assets, key=asset_sort_key, reverse=True)
 
-# Maximum score that the CVE component can contribute
-_MAX_CVE_COMPONENT = 50.0
-
-# Number of highest-CVSS CVEs considered (prevents score inflation)
-_TOP_CVE_COUNT = 3
-
-
-def calculate_risk(asset: Asset) -> float:
-    """Calculate a 0–100 risk score for *asset*.
-
-    Components (each capped individually):
-      • Vulnerability component (0–50):
-          sum of per-severity weights * confidence multiplier,
-          capped at ``_MAX_VULN_COMPONENT``.
-      • CVE component (0–50):
-          sum of CVSS scores for the top ``_TOP_CVE_COUNT`` CVEs,
-          capped at ``_MAX_CVE_COMPONENT``.
-
-    Returns:
-        A float in [0.0, 100.0].
+    Components (all maximized):
+      1. KEV flag     — 1 if any CVE is actively exploited, else 0
+      2. Max CVSS     — highest CVSS score across asset CVEs (0.0 if none)
+      3. Confirmed    — count of high-confidence vulnerabilities
     """
-    # ── Vulnerability component ──────────────────────────────────────────
-    vuln_score = 0.0
-    for v in asset.vulnerabilities:
-        severity_pts = _VULN_SEVERITY_WEIGHT.get(v.severity.lower(), 2.0)
-        confidence_mult = _CONFIDENCE_WEIGHT.get(v.confidence.lower(), 0.6)
-        vuln_score += severity_pts * confidence_mult
-    vuln_score = min(vuln_score, _MAX_VULN_COMPONENT)
-
-    # ── CVE component ────────────────────────────────────────────────────
-    # Top N CVEs by CVSS with diminishing-return weights: 1st→1.0, 2nd→0.7, 3rd→0.5
-    # This prevents a pile of mid-severity CVEs from inflating the score as
-    # much as a single critical one.
-    _CVE_WEIGHTS = (1.0, 0.7, 0.5)
-    top_cves = sorted(asset.cves, key=lambda c: c.cvss, reverse=True)[:_TOP_CVE_COUNT]
-    cve_score = min(
-        sum(c.cvss * _CVE_WEIGHTS[i] for i, c in enumerate(top_cves)),
-        _MAX_CVE_COMPONENT,
-    )
-
-    total = round(vuln_score + cve_score, 2)
+    kev = 1 if asset.has_kev else 0
+    max_cvss = asset.max_cvss or 0.0
+    confirmed = asset.confirmed_vuln_count
 
     logger.debug(
-        "risk [%s]: vuln=%.1f cve=%.1f → total=%.2f",
-        asset.host,
-        vuln_score,
-        cve_score,
-        total,
+        "priority [%s]: kev=%d max_cvss=%.1f confirmed=%d",
+        asset.host, kev, max_cvss, confirmed,
     )
-    return total
+    return (kev, max_cvss, confirmed)
+
+
+def sort_assets(assets: list[Asset]) -> list[Asset]:
+    """Sort assets by security priority (most critical first)."""
+    return sorted(assets, key=asset_sort_key, reverse=True)

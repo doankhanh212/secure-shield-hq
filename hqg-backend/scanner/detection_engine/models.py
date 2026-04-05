@@ -3,23 +3,18 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Optional
 
 
-OWASP_MAP: dict[str, str] = {
-    "sqli": "A03:2021 Injection",
-    "xss": "A03:2021 Injection",
-    "ssrf": "A10:2021 SSRF",
-    "cmdi": "A03:2021 Injection",
-    "lfi": "A05:2021 Security Misconfiguration",
-    "path_traversal": "A05:2021 Security Misconfiguration",
-    "info_disclosure": "A02:2021 Cryptographic Failures",
-    "time_based_sqli": "A03:2021 Injection",
-    "time_based_cmdi": "A03:2021 Injection",
-}
-
+# CWE mapping: vulnerability_type → CWE root cause identifier.
+# This is the one valid static mapping — CWE identifies the weakness class
+# of each detection type. OWASP classification is handled dynamically by
+# scanner.owasp_mapping.engine.
 CWE_MAP: dict[str, str] = {
     "sqli": "CWE-89",
     "xss": "CWE-79",
+    "xss_reflected": "CWE-79",
+    "xss_stored": "CWE-79",
     "ssrf": "CWE-918",
     "cmdi": "CWE-78",
     "lfi": "CWE-22",
@@ -27,23 +22,17 @@ CWE_MAP: dict[str, str] = {
     "info_disclosure": "CWE-200",
     "time_based_sqli": "CWE-89",
     "time_based_cmdi": "CWE-78",
-}
-
-CVSS_MAP: dict[str, float] = {
-    "sqli": 9.8,
-    "xss": 6.1,
-    "ssrf": 8.6,
-    "cmdi": 9.8,
-    "lfi": 7.5,
-    "path_traversal": 7.5,
-    "info_disclosure": 5.3,
-    "time_based_sqli": 7.5,
-    "time_based_cmdi": 7.5,
+    "open_redirect": "CWE-601",
 }
 
 
-def _cvss_to_severity(score: float) -> str:
-    """Map CVSS v3.1 score to severity string."""
+def cvss_to_severity(score: Optional[float]) -> str:
+    """Map CVSS v3.1 score to severity string.
+
+    Returns 'Unscored' when no CVSS score is available (None or 0).
+    """
+    if score is None:
+        return "Unscored"
     if score >= 9.0:
         return "Critical"
     if score >= 7.0:
@@ -52,11 +41,14 @@ def _cvss_to_severity(score: float) -> str:
         return "Medium"
     if score > 0:
         return "Low"
-    return "None"
+    return "Unscored"
+
 
 VULN_NAME_MAP: dict[str, str] = {
     "sqli": "SQL Injection",
     "xss": "Cross-Site Scripting (XSS)",
+    "xss_reflected": "Reflected XSS",
+    "xss_stored": "Stored XSS",
     "ssrf": "Server-Side Request Forgery",
     "cmdi": "Command Injection",
     "lfi": "File Inclusion",
@@ -64,6 +56,7 @@ VULN_NAME_MAP: dict[str, str] = {
     "info_disclosure": "Information Disclosure",
     "time_based_sqli": "Time-Based SQL Injection",
     "time_based_cmdi": "Time-Based Command Injection",
+    "open_redirect": "Open Redirect",
 }
 
 
@@ -87,22 +80,16 @@ class VulnerabilityFinding:
         return VULN_NAME_MAP.get(self.vulnerability_type, self.vulnerability_type)
 
     @property
-    def owasp(self) -> str:
-        return OWASP_MAP.get(self.vulnerability_type, "Unknown")
-
-    @property
     def cwe(self) -> str:
-        return CWE_MAP.get(self.vulnerability_type, "CWE-0")
-
-    @property
-    def cvss_score(self) -> float:
-        return CVSS_MAP.get(self.vulnerability_type, 0.0)
-
-    @property
-    def severity(self) -> str:
-        return _cvss_to_severity(self.cvss_score)
+        return CWE_MAP.get(self.vulnerability_type, "")
 
     def to_dict(self) -> dict[str, object]:
+        """Serialize finding to dict.
+
+        OWASP category and CVSS score are NOT set here — they are assigned
+        downstream by the OWASP mapping engine and CVE intelligence layer
+        respectively. This ensures no fake/static scoring pollutes findings.
+        """
         return {
             "finding_id": self.finding_id,
             "endpoint": self.endpoint,
@@ -111,10 +98,7 @@ class VulnerabilityFinding:
             "payload": self.payload,
             "vulnerability": self.vulnerability,
             "vulnerability_type": self.vulnerability_type,
-            "owasp": self.owasp,
             "cwe": self.cwe,
-            "cvss_score": self.cvss_score,
-            "severity": self.severity,
             "confidence": self.confidence,
             "detection_method": self.detection_method,
             "is_false_positive": self.is_false_positive,

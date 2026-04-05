@@ -5,7 +5,7 @@ Orchestrates:
   2. Asset creation
   3. Technology fingerprinting (async, per-asset)
   4. Vulnerability + CVE enrichment
-  5. Risk scoring
+  5. Priority sorting (KEV > CVSS > confirmed vulns)
 
 Call ``build_assets`` from the pipeline after crawling and detection
 are complete.  The function is intentionally **synchronous** (runs its
@@ -24,7 +24,7 @@ from scanner.asset_intelligence.asset_enricher import enrich_asset
 from scanner.asset_intelligence.fingerprint_service import fingerprint_asset
 from scanner.asset_intelligence.host_grouper import group_by_host
 from scanner.asset_intelligence.models import Asset
-from scanner.asset_intelligence.risk_aggregator import calculate_risk
+from scanner.asset_intelligence.risk_aggregator import sort_assets
 
 logger = logging.getLogger(__name__)
 
@@ -73,20 +73,17 @@ async def build_assets_async(
     for asset in assets:
         enrich_asset(asset, findings, cve_records)
 
-    # 5 — Calculate risk score
-    for asset in assets:
-        asset.risk_score = calculate_risk(asset)
-
-    # Sort descending by risk
-    assets.sort(key=lambda a: a.risk_score, reverse=True)
+    # 5 — Sort by priority (KEV > CVSS > confirmed vulns)
+    assets = sort_assets(assets)
 
     logger.info(
         "asset_intelligence: %d assets built "
-        "(%d total vulns, %d total CVEs, top risk=%.1f)",
+        "(%d total vulns, %d total CVEs, top_kev=%s, top_cvss=%s)",
         len(assets),
         sum(len(a.vulnerabilities) for a in assets),
         sum(len(a.cves) for a in assets),
-        assets[0].risk_score if assets else 0.0,
+        assets[0].has_kev if assets else False,
+        assets[0].max_cvss if assets else None,
     )
     return assets
 

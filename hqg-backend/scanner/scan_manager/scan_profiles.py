@@ -16,6 +16,7 @@ SCAN_MODE_PROFILES: dict[str, dict] = {
     # QUICK — nhanh, không inject payload, dùng security_checks
     # ------------------------------------------------------------------
     "quick": {
+        "global_timeout_seconds": 300,        # 5 minutes hard cap
         "crawler": {
             "max_pages": 20,
             "max_depth": 2,
@@ -52,9 +53,10 @@ SCAN_MODE_PROFILES: dict[str, dict] = {
     # STANDARD — đầy đủ, AI analysis, CVE intelligence, HTML report
     # ------------------------------------------------------------------
     "standard": {
+        "global_timeout_seconds": 1800,       # 30 minutes hard cap
         "crawler": {
-            "max_pages": 200,
-            "max_depth": 5,
+            "max_pages": 100,
+            "max_depth": 2,
         },
         "template_engine": {
             "enabled": True,
@@ -91,9 +93,10 @@ SCAN_MODE_PROFILES: dict[str, dict] = {
     # DEEP — rộng hơn standard, cho phép fallback và payload nhiều hơn
     # ------------------------------------------------------------------
     "deep": {
+        "global_timeout_seconds": 3600,       # 1 hour hard cap
         "crawler": {
-            "max_pages": 500,
-            "max_depth": 8,
+            "max_pages": 200,
+            "max_depth": 3,
             "follow_external": False,
             "timeout_per_page": 15,
             "discover_hidden_params": True,
@@ -145,9 +148,10 @@ SCAN_MODE_PROFILES: dict[str, dict] = {
     # FULL — coverage lớn nhất, vẫn có giới hạn để tránh request explosion
     # ------------------------------------------------------------------
     "full": {
+        "global_timeout_seconds": 3600,       # 1 hour hard cap
         "crawler": {
-            "max_pages": 500,
-            "max_depth": 8,
+            "max_pages": 200,
+            "max_depth": 3,
         },
         "template_engine": {
             "enabled": True,

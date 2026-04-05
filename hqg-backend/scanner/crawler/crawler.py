@@ -108,7 +108,12 @@ def _register_endpoint(
         api_endpoints.add(ep)
 
 
-async def crawl_target_async(target: str, max_depth: int = 2) -> CrawlOutput:
+async def crawl_target_async(
+    target: str,
+    max_depth: int = 2,
+    max_urls: int = 200,
+) -> CrawlOutput:
+    """Crawl *target* up to *max_depth* levels deep, visiting at most *max_urls* pages."""
     base = _root_url(target)
     target_domain = extract_domain(base)
     start_url = normalize_url(base)
@@ -148,6 +153,13 @@ async def crawl_target_async(target: str, max_depth: int = 2) -> CrawlOutput:
             current_url, depth = queue.popleft()
             if current_url in seen_urls:
                 continue
+            # Hard cap: stop accepting new pages once limit reached
+            if len(seen_urls) >= max_urls:
+                logger.warning(
+                    "crawl_target_async: max_urls=%d reached for %s — stopping crawl",
+                    max_urls, target,
+                )
+                break
             if depth > max_depth:
                 continue
             if not is_in_scope(current_url, target_domain):

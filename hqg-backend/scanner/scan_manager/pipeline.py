@@ -59,7 +59,7 @@ def _ensure_not_cancelled(scan_id: str) -> None:
         raise ScanCancelledError(f"scan {scan_id} was cancelled")
 
 
-async def run_pipeline(
+async def _run_pipeline_inner(
     scan_id: str,
     target: str,
     config: ScanModeConfig,
@@ -92,9 +92,19 @@ async def run_pipeline(
         discovery_result = await _disc(target)
         discovery_output = discovery_result.to_dict()
 
-        crawl_targets = sorted(
-            {target, *discovery_result.subdomains}
-        )
+        # Cap subdomains to avoid spawning hundreds of parallel crawlers.
+        # Priority: always include the primary target first.
+        _MAX_CRAWL_TARGETS = 20
+        all_targets = sorted({target, *discovery_result.subdomains})
+        if len(all_targets) > _MAX_CRAWL_TARGETS:
+            logger.warning(
+                "scan=%s Capping crawl targets %d → %d (too many subdomains)",
+                scan_id, len(all_targets), _MAX_CRAWL_TARGETS,
+            )
+            # Ensure the primary target is always included
+            other_targets = [t for t in all_targets if t != target][:_MAX_CRAWL_TARGETS - 1]
+            all_targets = [target] + other_targets
+        crawl_targets = all_targets
 
     _ensure_not_cancelled(scan_id)
     _set_stage(scan_id, ScanStage.ASSET_DISCOVERY, 0.20)
@@ -111,8 +121,18 @@ async def run_pipeline(
     if config.has_stage("crawling"):
         from scanner.crawler.crawler import crawl_target_async
 
+        # Pull max_pages from the profile so the crawler honours the per-mode limit.
+        _crawler_profile = _profile.get("crawler", {})
+        _max_urls_per_target = int(_crawler_profile.get("max_pages", 100))
+        _crawl_depth = min(config.max_depth, int(_crawler_profile.get("max_depth", config.max_depth)))
+        logger.info(
+            "scan=%s crawling %d target(s) max_depth=%d max_urls_per_target=%d",
+            scan_id, len(crawl_targets), _crawl_depth, _max_urls_per_target,
+        )
+
         crawl_tasks = [
-            crawl_target_async(t, max_depth=config.max_depth) for t in crawl_targets
+            crawl_target_async(t, max_depth=_crawl_depth, max_urls=_max_urls_per_target)
+            for t in crawl_targets
         ]
         crawl_results = await asyncio.gather(*crawl_tasks)
 
@@ -356,6 +376,24 @@ async def run_pipeline(
             logger.warning("scan=%s knowledge-base enrichment failed: %s", scan_id, _enr_exc)
 
     # ------------------------------------------------------------------ #
+    # OWASP classification — runs BEFORE AI analysis so downstream stages #
+    # can reference the category.  Re-runs AFTER CVE intelligence to      #
+    # upgrade classification with CVE→CWE→OWASP data (Layer 1).          #
+    # ------------------------------------------------------------------ #
+    if all_findings:
+        try:
+            from scanner.owasp_mapping.engine import enrich_findings_owasp as _owasp_classify
+
+            all_findings = _owasp_classify(all_findings, cve_records=None)
+            logger.info(
+                "scan=%s pre-CVE OWASP classification complete: %d findings",
+                scan_id,
+                len(all_findings),
+            )
+        except Exception as _ow_exc:
+            logger.warning("scan=%s OWASP classification failed: %s", scan_id, _ow_exc)
+
+    # ------------------------------------------------------------------ #
     # Stage 5 – AI Analysis                                               #
     # ------------------------------------------------------------------ #
     _set_stage(scan_id, ScanStage.AI_ANALYSIS, 0.84)
@@ -579,6 +617,27 @@ async def run_pipeline(
     else:
         logger.info("scan=%s stage=cve_intelligence disabled (mode=%s)", scan_id, config.name)
 
+    # ------------------------------------------------------------------ #
+    # Post-CVE OWASP re-classification (Layer 1 upgrade)                  #
+    # Now that CVE records are available, re-run the OWASP engine so      #
+    # CVE→CWE→OWASP (highest accuracy) can override rule/fallback.       #
+    # ------------------------------------------------------------------ #
+    if analyzed_findings and cve_output:
+        try:
+            from scanner.owasp_mapping.engine import enrich_findings_owasp as _owasp_reclassify
+
+            _cve_recs_for_owasp = cve_output.get("cve_records", []) if isinstance(cve_output, dict) else []
+            analyzed_findings = _owasp_reclassify(
+                analyzed_findings, cve_records=_cve_recs_for_owasp
+            )
+            logger.info(
+                "scan=%s post-CVE OWASP re-classification complete: %d findings",
+                scan_id,
+                len(analyzed_findings),
+            )
+        except Exception as _ow2_exc:
+            logger.warning("scan=%s post-CVE OWASP re-classification failed: %s", scan_id, _ow2_exc)
+
     _ensure_not_cancelled(scan_id)
 
     # ------------------------------------------------------------------ #
@@ -683,3 +742,37 @@ async def run_pipeline(
         "attack_paths": attack_paths_output,
         "asset_intelligence": asset_intelligence_output,
     }
+
+
+async def run_pipeline(
+    scan_id: str,
+    target: str,
+    config: ScanModeConfig,
+) -> dict[str, object]:
+    """Public entry-point — enforces a global wall-clock timeout from the scan profile."""
+    _profile = get_profile(config.name)
+    _timeout = float(_profile.get("global_timeout_seconds", 1800))  # default 30 min
+
+    logger.info(
+        "scan=%s mode=%s global_timeout=%.0fs",
+        scan_id, config.name, _timeout,
+    )
+
+    try:
+        result = await asyncio.wait_for(
+            _run_pipeline_inner(scan_id, target, config),
+            timeout=_timeout,
+        )
+        return result
+    except asyncio.TimeoutError:
+        logger.error(
+            "scan=%s TIMED OUT after %.0f seconds — marking as failed",
+            scan_id, _timeout,
+        )
+        update_scan(
+            scan_id,
+            status=ScanStatus.FAILED,
+            stage=ScanStage.DONE,
+            error=f"Scan exceeded maximum allowed time of {int(_timeout)}s",
+        )
+        raise
